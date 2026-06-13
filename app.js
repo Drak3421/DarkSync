@@ -461,26 +461,22 @@ function loadTasks() {
                   if (task.timestamp > appStartTime && currentProfile) {
                       if (change.type === "added") {
                           // Notify assignee of new task assigned to them
-                          if (task.assignee === currentProfile.member && task.assignedBy !== currentProfile.member) {
-                              if (Notification.permission === "granted") {
-                                  new Notification("New Task Assigned!", {
-                                      body: `${task.assignedBy} assigned you: "${task.title}"`,
-                                      icon: "icon.png",
-                                      tag: "task-new-" + change.doc.id
-                                  });
-                              }
-                          }
+                           if (task.assignee === currentProfile.member && task.assignedBy !== currentProfile.member) {
+                               showLocalNotification("New Task Assigned!", {
+                                   body: `${task.assignedBy} assigned you: "${task.title}"`,
+                                   icon: "icon.png",
+                                   tag: "task-new-" + change.doc.id
+                               });
+                           }
                       } else if (change.type === "modified") {
                           // Notify assigner of completion
-                          if (task.completed && task.completedAt > appStartTime && task.assignedBy === currentProfile.member && task.completedBy !== currentProfile.member) {
-                              if (Notification.permission === "granted") {
-                                  new Notification("Task Completed!", {
-                                      body: `${task.completedBy} completed your task: "${task.title}"`,
-                                      icon: "icon.png",
-                                      tag: "task-done-" + change.doc.id
-                                  });
-                              }
-                          }
+                           if (task.completed && task.completedAt > appStartTime && task.assignedBy === currentProfile.member && task.completedBy !== currentProfile.member) {
+                               showLocalNotification("Task Completed!", {
+                                   body: `${task.completedBy} completed your task: "${task.title}"`,
+                                   icon: "icon.png",
+                                   tag: "task-done-" + change.doc.id
+                               });
+                           }
                       }
                   }
               });
@@ -729,15 +725,13 @@ function loadMessages() {
               snapshot.docChanges().forEach(change => {
                   if (change.type === "added") {
                       const msg = change.doc.data();
-                      if (msg.timestamp > appStartTime && currentProfile && msg.sender !== currentProfile.member) {
-                          if (Notification.permission === "granted") {
-                              new Notification(`New Message from ${msg.sender}`, {
-                                  body: msg.text,
-                                  icon: msg.avatar,
-                                  tag: "chat-msg-" + change.doc.id
-                              });
-                          }
-                      }
+                       if (msg.timestamp > appStartTime && currentProfile && msg.sender !== currentProfile.member) {
+                           showLocalNotification(`New Message from ${msg.sender}`, {
+                               body: msg.text,
+                               icon: msg.avatar,
+                               tag: "chat-msg-" + change.doc.id
+                           });
+                       }
                   }
               });
               
@@ -1380,6 +1374,22 @@ function requestNotificationPermission() {
         });
     }
     return Promise.resolve(window.Notification ? Notification.permission : "unsupported");
+}
+
+// Show notification locally (using service worker if possible for mobile support)
+function showLocalNotification(title, options) {
+    if (Notification.permission === "granted") {
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.ready.then(registration => {
+                registration.showNotification(title, options);
+            }).catch(err => {
+                console.warn("Service worker not ready, falling back to window.Notification", err);
+                new Notification(title, options);
+            });
+        } else {
+            new Notification(title, options);
+        }
+    }
 }
 
 // Request notification permission on first user interaction if already logged in but never prompted/set
