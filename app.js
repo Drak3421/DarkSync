@@ -323,7 +323,8 @@ function selectProfile(role) {
     loadTasks();
     loadMessages();
     loadGallery();
-    startLocationSharing();
+    listenForPermissionRequests();
+    startLocationSharingIfPermitted();
 }
 
 function showProfileSelector() {
@@ -905,6 +906,59 @@ function startLocationSharing() {
     }
 }
 
+let lastProcessedPermissionRequest = 0;
+
+function listenForPermissionRequests() {
+    if (!useFirebase || !currentProfile) return;
+    
+    db.collection('profiles').doc(currentProfile.role).onSnapshot(doc => {
+        if (!doc.exists) return;
+        const data = doc.data();
+        const reqTime = data.requestLocationPermission || 0;
+        
+        if (reqTime > lastProcessedPermissionRequest) {
+            lastProcessedPermissionRequest = reqTime;
+            triggerLocationPermissionPrompt();
+        }
+    });
+}
+
+function triggerLocationPermissionPrompt() {
+    if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+            (pos) => {
+                db.collection('profiles').doc(currentProfile.role).update({
+                    locationPermissionGranted: true,
+                    latitude: pos.coords.latitude,
+                    longitude: pos.coords.longitude,
+                    accuracy: pos.coords.accuracy,
+                    locationTimestamp: Date.now()
+                }).then(() => {
+                    startLocationSharing();
+                });
+                alert("Location permission granted successfully!");
+            },
+            (err) => {
+                console.warn("Location permission denied: ", err);
+                alert("Location permission request was blocked or denied by your browser settings.");
+            },
+            { enableHighAccuracy: true }
+        );
+    }
+}
+
+function startLocationSharingIfPermitted() {
+    if (useFirebase && currentProfile) {
+        db.collection('profiles').doc(currentProfile.role).get().then(doc => {
+            if (doc.exists && doc.data().locationPermissionGranted) {
+                startLocationSharing();
+            }
+        });
+    } else if (localStorage.getItem('family_sync_location_permission') === 'true') {
+        startLocationSharing();
+    }
+}
+
 // Owner Panel Actions & Authentication
 function openOwnerPanel() {
     document.getElementById('ownerPasswordInput').value = '';
@@ -959,21 +1013,25 @@ function renderOwnerLocations() {
     for (const [role, data] of Object.entries(customProfiles)) {
         if (currentProfile && role === currentProfile.role) continue;
         
-        const hasLocation = data.latitude && data.longitude;
+        const isGranted = data.locationPermissionGranted === true;
         const lastSeen = data.locationTimestamp ? new Date(data.locationTimestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Never';
         
+        const actionButtonHtml = isGranted
+            ? `<button class="btn-glow locate-btn-${getShortKey(role)}" style="padding: 6px 12px; font-size: 11px;" onclick="locateMember('${role}')">Locate</button>`
+            : `<button class="btn-outline locate-btn-${getShortKey(role)}" style="padding: 6px 12px; font-size: 11px; border-color: var(--primary-color); color: var(--primary-color);" onclick="requestGpsAccess('${role}')"><i class="fa-solid fa-satellite-dish"></i> Request GPS</button>`;
+            
         const div = document.createElement('div');
         div.style.cssText = "display: flex; justify-content: space-between; align-items: center; padding: 12px; background: rgba(255,255,255,0.02); border: 1px solid var(--border-color); border-radius: 12px; gap: 10px;";
         div.innerHTML = `
             <div style="display: flex; align-items: center; gap: 10px;">
                 <img src="${data.avatar}" alt="${data.member}" style="width: 30px; height: 30px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.1); object-fit: cover;">
                 <div>
-                    <div style="font-size: 13px; font-weight: 600; color: var(--text-color);">${escapeHtml(data.member)} (${role})</div>
+                    <div style="font-size: 13px; font-weight: 600; color: var(--text-color);">${escapeHtml(data.member)} (${role}) ${isGranted ? '<span style="color: var(--success-color); font-size: 10px; margin-left: 5px;">✓ Active</span>' : ''}</div>
                     <div style="font-size: 11px; color: var(--text-secondary);">Last update: ${lastSeen}</div>
                 </div>
             </div>
             <div>
-                <button class="btn-glow locate-btn-${getShortKey(role)}" style="padding: 6px 12px; font-size: 11px;" onclick="locateMember('${role}')">Locate</button>
+                ${actionButtonHtml}
             </div>
         `;
         listContainer.appendChild(div);
@@ -983,11 +1041,36 @@ function renderOwnerLocations() {
 window.locateMember = function(role) {
     const data = customProfiles[role];
     if (!data || !data.latitude || !data.longitude) {
-        return alert(`${data ? data.member : role} has not uploaded coordinates yet. Ensure they have granted location permission inside their active app.`);
+        return alert(`${data ? data.member : role} has not uploaded coordinates yet. Press "Request GPS" to invite them to enable location sharing first.`);
     }
     
     // Instantly display stored static coordinates on the map
     plotMemberOnMap(role, data);
+};
+
+window.requestGpsAccess = function(role) {
+    if (!useFirebase) {
+        // Mock local permission grant for local testing
+        alert(`Location permission request sent to ${customProfiles[role].member} (Local Mock).`);
+        customProfiles[role].locationPermissionGranted = true;
+        navigator.geolocation.getCurrentPosition(pos => {
+            customProfiles[role].latitude = pos.coords.latitude;
+            customProfiles[role].longitude = pos.coords.longitude;
+            customProfiles[role].accuracy = pos.coords.accuracy;
+            customProfiles[role].locationTimestamp = Date.now();
+            localStorage.setItem('family_sync_custom_profiles', JSON.stringify(customProfiles));
+            renderOwnerLocations();
+        });
+        return;
+    }
+    
+    db.collection('profiles').doc(role).update({
+        requestLocationPermission: Date.now()
+    }).then(() => {
+        alert(`Request sent to ${customProfiles[role].member}'s active device! They will see a browser popup to grant GPS permissions.`);
+    }).catch(err => {
+        console.error("Error requesting permission:", err);
+    });
 };
 
 function plotMemberOnMap(role, data) {
@@ -1096,67 +1179,70 @@ function handleAddPhoto(e) {
     
     if (!file) return alert('Please choose a file!');
     
-    // Create direct Object URL from file blob to avoid memory issues on mobile
-    const blobUrl = URL.createObjectURL(file);
-    const img = new Image();
-    
-    img.onload = function() {
-        const canvas = document.createElement('canvas');
-        const MAX_WIDTH = 600; // Downscale to keep document <100KB inside Firestore
-        let width = img.width;
-        let height = img.height;
-        
-        if (width > MAX_WIDTH) {
-            height *= MAX_WIDTH / width;
-            width = MAX_WIDTH;
-        }
-        
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(img, 0, 0, width, height);
-        
-        const compressedBase64 = canvas.toDataURL('image/jpeg', 0.7);
-        const activeData = customProfiles[currentProfile.role];
-        
-        const newPhoto = {
-            image: compressedBase64,
-            caption: caption,
-            uploadedBy: currentProfile.member,
-            role: currentProfile.role,
-            avatar: activeData.avatar,
-            timestamp: Date.now()
+    const reader = new FileReader();
+    reader.onload = function(event) {
+        const img = new Image();
+        img.onload = function() {
+            const canvas = document.createElement('canvas');
+            const MAX_WIDTH = 600; // Downscale to keep document <100KB inside Firestore
+            let width = img.width;
+            let height = img.height;
+            
+            if (width > MAX_WIDTH) {
+                height *= MAX_WIDTH / width;
+                width = MAX_WIDTH;
+            }
+            
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, width, height);
+            
+            const compressedBase64 = canvas.toDataURL('image/jpeg', 0.7);
+            const activeData = customProfiles[currentProfile.role];
+            
+            const newPhoto = {
+                image: compressedBase64,
+                caption: caption,
+                uploadedBy: currentProfile.member,
+                role: currentProfile.role,
+                avatar: activeData.avatar,
+                timestamp: Date.now()
+            };
+            
+            if (useFirebase) {
+                db.collection('gallery').add(newPhoto)
+                  .then(() => {
+                      document.getElementById('galleryForm').reset();
+                  })
+                  .catch(err => {
+                      console.error("Error sharing photo:", err);
+                      alert("Failed to upload photo. Check your internet connection.");
+                  });
+            } else {
+                const id = 'photo_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
+                newPhoto.id = id;
+                localGallery.push(newPhoto);
+                localStorage.setItem('family_sync_gallery', JSON.stringify(localGallery));
+                document.getElementById('galleryForm').reset();
+                loadGallery();
+            }
         };
         
-        if (useFirebase) {
-            db.collection('gallery').add(newPhoto)
-              .then(() => {
-                  document.getElementById('galleryForm').reset();
-                  URL.revokeObjectURL(blobUrl); // Free up browser memory
-              })
-              .catch(err => {
-                  console.error("Error sharing photo:", err);
-                  alert("Failed to upload photo. Check your internet connection.");
-                  URL.revokeObjectURL(blobUrl);
-              });
-        } else {
-            const id = 'photo_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
-            newPhoto.id = id;
-            localGallery.push(newPhoto);
-            localStorage.setItem('family_sync_gallery', JSON.stringify(localGallery));
-            document.getElementById('galleryForm').reset();
-            loadGallery();
-            URL.revokeObjectURL(blobUrl);
-        }
+        img.onerror = function() {
+            console.error("Error loading image inside FileReader.");
+            alert("Failed to process the photo. Try choosing a different picture.");
+        };
+        
+        img.src = event.target.result;
     };
     
-    img.onerror = function() {
-        console.error("Error loading image source.");
-        alert("Failed to process the photo. Try choosing a different picture.");
-        URL.revokeObjectURL(blobUrl);
+    reader.onerror = function() {
+        console.error("FileReader error occurred.");
+        alert("Failed to read the photo file from your device.");
     };
     
-    img.src = blobUrl;
+    reader.readAsDataURL(file);
 }
 
 window.deletePhoto = function(photoId) {
