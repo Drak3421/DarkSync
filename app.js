@@ -26,6 +26,7 @@ let customProfiles = {
 // Local Fallback Storage Cache
 let localTasks = JSON.parse(localStorage.getItem('family_sync_tasks')) || [];
 let localMessages = JSON.parse(localStorage.getItem('family_sync_messages')) || [];
+let localGallery = JSON.parse(localStorage.getItem('family_sync_gallery')) || [];
 
 // Initialize App
 document.addEventListener('DOMContentLoaded', () => {
@@ -112,6 +113,11 @@ function setupEventListeners() {
     // Form Submissions
     document.getElementById('taskForm').addEventListener('submit', handleAddTask);
     document.getElementById('chatForm').addEventListener('submit', handleSendMessage);
+
+    // Form Submissions
+    document.getElementById('taskForm').addEventListener('submit', handleAddTask);
+    document.getElementById('chatForm').addEventListener('submit', handleSendMessage);
+    document.getElementById('galleryForm').addEventListener('submit', handleAddPhoto);
 
     // Typing status listener
     let typingTimeout = null;
@@ -310,6 +316,7 @@ function selectProfile(role) {
 
     loadTasks();
     loadMessages();
+    loadGallery();
     startLocationSharing();
 }
 
@@ -1004,3 +1011,160 @@ function plotMemberOnMap(role, data) {
         .bindPopup(`<strong style="color: #000;">${escapeHtml(data.member)}</strong><br><span style="font-size: 11px; color: #666;">Accuracy: ±${Math.round(data.accuracy || 0)}m</span>`)
         .openPopup();
 }
+
+// Gallery System & Real-Time Photo sync
+function loadGallery() {
+    if (useFirebase) {
+        db.collection('gallery').orderBy('timestamp', 'desc')
+          .onSnapshot((snapshot) => {
+              const photos = [];
+              snapshot.forEach(doc => {
+                  photos.push({ id: doc.id, ...doc.data() });
+              });
+              renderGallery(photos);
+          }, (err) => {
+              console.error("Firestore gallery error:", err);
+              renderGallery(localGallery);
+          });
+    } else {
+        renderGallery(localGallery);
+    }
+}
+
+function renderGallery(photos) {
+    const grid = document.getElementById('galleryGrid');
+    if (!grid) return;
+    
+    grid.innerHTML = '';
+    
+    if (photos.length === 0) {
+        grid.innerHTML = `
+            <div class="skeleton-card" style="grid-column: 1 / -1; justify-content: center; align-items: center; min-height: 200px; border-style: dashed; background: transparent; pointer-events: none;">
+                <span style="color: var(--text-secondary); font-size: 13px;">No shared photos in the family album yet. Share the first one!</span>
+            </div>
+        `;
+        return;
+    }
+    
+    photos.forEach(photo => {
+        const isOwner = currentProfile && currentProfile.member === photo.uploadedBy;
+        const deleteBtnHtml = isOwner 
+            ? `<button class="btn-delete-photo" onclick="deletePhoto('${photo.id}')" title="Delete Photo"><i class="fa-solid fa-trash-can"></i></button>`
+            : '';
+            
+        const card = document.createElement('div');
+        card.className = 'gallery-card';
+        
+        const timeString = photo.timestamp ? new Date(photo.timestamp).toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
+        
+        card.innerHTML = `
+            <div class="gallery-img-wrapper">
+                <img src="${photo.image}" class="gallery-img" alt="Uploaded photo">
+            </div>
+            <div class="gallery-info">
+                ${photo.caption ? `<div class="gallery-caption">${escapeHtml(photo.caption)}</div>` : ''}
+                <div class="gallery-meta">
+                    <div class="uploader-profile">
+                        <img src="${photo.avatar}" style="width: 20px; height: 20px; border-radius: 50%; object-fit: cover;">
+                        <span class="uploader-name">${escapeHtml(photo.uploadedBy)}</span>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <span style="font-size: 10px; color: var(--text-secondary);">${timeString}</span>
+                        ${deleteBtnHtml}
+                    </div>
+                </div>
+            </div>
+        `;
+        grid.appendChild(card);
+    });
+}
+
+function handleAddPhoto(e) {
+    e.preventDefault();
+    if (!currentProfile) return showProfileSelector();
+    
+    const fileInput = document.getElementById('galleryFile');
+    const captionInput = document.getElementById('galleryCaption');
+    const file = fileInput.files[0];
+    const caption = captionInput.value.trim();
+    
+    if (!file) return alert('Please choose a file!');
+    
+    const reader = new FileReader();
+    reader.onload = function(event) {
+        const img = new Image();
+        img.onload = function() {
+            const canvas = document.createElement('canvas');
+            const MAX_WIDTH = 600; // Downscale to keep document <100KB inside Firestore
+            let width = img.width;
+            let height = img.height;
+            
+            if (width > MAX_WIDTH) {
+                height *= MAX_WIDTH / width;
+                width = MAX_WIDTH;
+            }
+            
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, width, height);
+            
+            const compressedBase64 = canvas.toDataURL('image/jpeg', 0.7);
+            const activeData = customProfiles[currentProfile.role];
+            
+            const newPhoto = {
+                image: compressedBase64,
+                caption: caption,
+                uploadedBy: currentProfile.member,
+                role: currentProfile.role,
+                avatar: activeData.avatar,
+                timestamp: Date.now()
+            };
+            
+            if (useFirebase) {
+                db.collection('gallery').add(newPhoto)
+                  .then(() => {
+                      document.getElementById('galleryForm').reset();
+                  })
+                  .catch(err => console.error("Error sharing photo:", err));
+            } else {
+                const id = 'photo_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
+                newPhoto.id = id;
+                localGallery.push(newPhoto);
+                localStorage.setItem('family_sync_gallery', JSON.stringify(localGallery));
+                document.getElementById('galleryForm').reset();
+                loadGallery();
+            }
+        };
+        img.src = event.target.result;
+    };
+    reader.readAsDataURL(file);
+}
+
+window.deletePhoto = function(photoId) {
+    if (!currentProfile) return showProfileSelector();
+    
+    if (confirm("Are you sure you want to delete this photo?")) {
+        if (useFirebase) {
+            db.collection('gallery').doc(photoId).get().then(doc => {
+                if (doc.exists && doc.data().uploadedBy === currentProfile.member) {
+                    db.collection('gallery').doc(photoId).delete()
+                      .catch(err => console.error("Error deleting photo:", err));
+                } else {
+                    alert("You can only delete photos uploaded by yourself!");
+                }
+            });
+        } else {
+            const idx = localGallery.findIndex(p => p.id === photoId);
+            if (idx !== -1) {
+                if (localGallery[idx].uploadedBy === currentProfile.member) {
+                    localGallery = localGallery.filter(p => p.id !== photoId);
+                    localStorage.setItem('family_sync_gallery', JSON.stringify(localGallery));
+                    loadGallery();
+                } else {
+                    alert("You can only delete photos uploaded by yourself!");
+                }
+            }
+        }
+    }
+};
