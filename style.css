@@ -1043,3 +1043,210 @@ header {
     }
 }
 
+/* Skeleton Loading Shimmers */
+.skeleton-card {
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid var(--border-color);
+    border-radius: 16px;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-bottom: 12px;
+    overflow: hidden;
+    position: relative;
+}
+
+.skeleton-line {
+    height: 12px;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 4px;
+    position: relative;
+    overflow: hidden;
+}
+
+.skeleton-line.title {
+    height: 16px;
+    width: 60%;
+}
+
+.skeleton-line.desc {
+    height: 12px;
+    width: 85%;
+}
+
+.skeleton-line.footer {
+    height: 10px;
+    width: 40%;
+}
+
+.skeleton-card::after, .skeleton-msg::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    transform: translateX(-100%);
+    background-image: linear-gradient(
+        90deg,
+        rgba(255, 255, 255, 0) 0%,
+        rgba(255, 255, 255, 0.03) 20%,
+        rgba(255, 255, 255, 0.08) 60%,
+        rgba(255, 255, 255, 0) 100%
+    );
+    animation: shimmer 1.6s infinite;
+}
+
+@keyframes shimmer {
+    100% {
+        transform: translateX(100%);
+    }
+}
+
+.skeleton-msg {
+    display: flex;
+    gap: 12px;
+    align-items: flex-end;
+    margin-bottom: 16px;
+    position: relative;
+    overflow: hidden;
+    padding: 8px;
+}
+
+.skeleton-avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.skeleton-bubble {
+    flex-grow: 1;
+    max-width: 60%;
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid var(--border-color);
+    border-radius: 16px 16px 16px 4px;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+/* Floating Scroll to Bottom Button */
+.scroll-bottom-btn {
+    position: absolute;
+    bottom: 70px;
+    left: 50%;
+    transform: translate(-50%, 20px);
+    background: var(--primary-color);
+    color: #fff;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 980px;
+    font-size: 12px;
+    font-weight: 600;
+    box-shadow: 0 8px 20px rgba(41, 151, 255, 0.35);
+    cursor: pointer;
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    opacity: 0;
+    pointer-events: none;
+    transition: transform 0.4s cubic-bezier(0.25, 1, 0.5, 1), opacity 0.3s ease, background-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.scroll-bottom-btn.visible {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translate(-50%, 0);
+}
+
+.scroll-bottom-btn:hover {
+    background: var(--primary-hover);
+    box-shadow: 0 10px 24px rgba(41, 151, 255, 0.5);
+    transform: translate(-50%, -2px);
+}
+
+.scroll-bottom-btn:active {
+    transform: translate(-50%, 1px);
+}
+
+/* Premium card hover overrides */
+.task-card {
+    transition: transform 0.3s cubic-bezier(0.25, 1, 0.5, 1), background-color 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease !important;
+}
+
+.task-card:hover {
+    transform: translateY(-2px) scale(1.01) !important;
+    background: rgba(44, 44, 46, 0.8) !important;
+    border-color: rgba(41, 151, 255, 0.25) !important;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3), 0 0 12px rgba(41, 151, 255, 0.08) !important;
+}
+
+.task-card.high-priority:hover {
+    border-color: rgba(255, 59, 48, 0.35) !important;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3), 0 0 12px rgba(255, 59, 48, 0.15) !important;
+}
+
+.task-card.low-priority:hover {
+    border-color: rgba(52, 199, 89, 0.35) !important;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3), 0 0 12px rgba(52, 199, 89, 0.15) !important;
+}
+
+.profile-card {
+    transition: transform 0.3s cubic-bezier(0.25, 1, 0.5, 1), background-color 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease !important;
+}
+
+.profile-card:hover {
+    transform: translateY(-3px) scale(1.02) !important;
+    border-color: rgba(41, 151, 255, 0.3) !important;
+    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.45), 0 0 15px rgba(41, 151, 255, 0.1) !important;
+}
+
+/* Premium input focus ring override */
+.form-input:focus, .form-select:focus, .form-textarea:focus, .chat-input:focus {
+    outline: none !important;
+    border-color: var(--primary-color) !important;
+    box-shadow: 0 0 0 4px rgba(41, 151, 255, 0.15) !important;
+    transform: scale(1.002);
+    transition: box-shadow 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
+}
+
+/* Custom Leaflet Marker */
+.map-avatar-marker {
+    background: transparent;
+    border: none;
+}
+.map-avatar-wrapper {
+    width: 42px;
+    height: 42px;
+    border-radius: 50%;
+    border: 3px solid var(--primary-color);
+    box-shadow: 0 0 12px rgba(41, 151, 255, 0.6);
+    background-color: #000;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: transform 0.2s ease;
+}
+.map-avatar-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+body.light-theme .leaflet-bar a, 
+body.light-theme .leaflet-control-zoom {
+    background-color: #ffffff !important;
+    color: #1d1d1f !important;
+    border-color: rgba(0, 0, 0, 0.1) !important;
+}
+.leaflet-container {
+    font-family: inherit !important;
+}
+
+
+

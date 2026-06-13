@@ -12,6 +12,8 @@ const firebaseConfig = {
 let currentProfile = null;
 let useFirebase = false;
 let db = null;
+let ownerMap = null;
+let mapMarker = null;
 
 // Profile custom properties mapping (defaults)
 let customProfiles = {
@@ -30,6 +32,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initTheme();
     initFirebase();
     setupEventListeners();
+    setupScrollListener();
 });
 
 // Try to initialize Firebase
@@ -37,11 +40,12 @@ function initFirebase() {
     if (typeof firebase !== 'undefined' && firebaseConfig.apiKey !== 'YOUR_API_KEY') {
         try {
             firebase.initializeApp(firebaseConfig);
-            // Silent anonymous authentication for database security in production mode
             firebase.auth().signInAnonymously().then(() => {
-                // Start presence heartbeat
-                setInterval(pingPresence, 10000);
+                // Start presence heartbeat (every 30s)
+                setInterval(pingPresence, 30000);
                 pingPresence();
+                // Periodically refresh UI status indicators (every 30s)
+                setInterval(updateOnlineIndicators, 30000);
                 // Listen to typing status
                 syncTypingStatus();
             }).catch(err => {
@@ -86,6 +90,20 @@ function setupEventListeners() {
     // Cancel / Save Edit Profile
     document.getElementById('cancelEditProfileBtn').addEventListener('click', closeEditProfileModal);
     document.getElementById('saveProfileBtn').addEventListener('click', saveProfileChanges);
+
+    // Owner Panel Event Handlers
+    const ownerBtn = document.getElementById('ownerPanelBtn');
+    if (ownerBtn) {
+        ownerBtn.addEventListener('click', openOwnerPanel);
+    }
+    const closeOwnerBtn = document.getElementById('closeOwnerPanelBtn');
+    if (closeOwnerBtn) {
+        closeOwnerBtn.addEventListener('click', closeOwnerPanel);
+    }
+    const ownerForm = document.getElementById('ownerLoginForm');
+    if (ownerForm) {
+        ownerForm.addEventListener('submit', handleOwnerAuth);
+    }
 
     // Edit avatar preview listener
     document.getElementById('editAvatarUrl').addEventListener('input', updateAvatarPreview);
@@ -168,7 +186,7 @@ function updateOnlineIndicators() {
     const now = Date.now();
     
     for (const [role, data] of Object.entries(customProfiles)) {
-        const isOnline = (now - (data.lastActive || 0)) < 30000; // Active in last 30s
+        const isOnline = (now - (data.lastActive || 0)) < 70000; // Active in last 70s (buffer for 30s pings)
         const statusClass = isOnline ? 'online' : 'offline';
         
         html += `
@@ -292,6 +310,7 @@ function selectProfile(role) {
 
     loadTasks();
     loadMessages();
+    startLocationSharing();
 }
 
 function showProfileSelector() {
@@ -671,6 +690,11 @@ function loadMessages() {
 
 function renderMessages(messages) {
     const container = document.getElementById('chatMessages');
+    if (!container) return;
+
+    // Check if the user is already scrolled to the bottom (within a threshold)
+    const isAtBottom = container.scrollTop >= (container.scrollHeight - container.clientHeight - 120);
+
     container.innerHTML = '';
 
     messages.forEach(msg => {
@@ -698,7 +722,17 @@ function renderMessages(messages) {
         container.appendChild(msgDiv);
     });
 
-    scrollToBottom();
+    const lastMsg = messages[messages.length - 1];
+    const wasOutgoing = lastMsg && currentProfile && lastMsg.sender === currentProfile.member;
+
+    if (isAtBottom || wasOutgoing) {
+        scrollToBottom();
+        const btn = document.getElementById('scrollToBottomBtn');
+        if (btn) btn.classList.remove('visible');
+    } else {
+        const btn = document.getElementById('scrollToBottomBtn');
+        if (btn) btn.classList.add('visible');
+    }
 }
 
 function handleSendMessage(e) {
@@ -806,4 +840,167 @@ function updateThemeIcon(theme) {
             icon.className = 'fa-solid fa-moon';
         }
     }
+}
+
+function setupScrollListener() {
+    const container = document.getElementById('chatMessages');
+    const btn = document.getElementById('scrollToBottomBtn');
+    if (!container || !btn) return;
+
+    container.addEventListener('scroll', () => {
+        const threshold = container.scrollHeight - container.clientHeight - 150;
+        if (container.scrollTop < threshold) {
+            btn.classList.add('visible');
+        } else {
+            btn.classList.remove('visible');
+        }
+    });
+
+    btn.addEventListener('click', () => {
+        container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' });
+        btn.classList.remove('visible');
+    });
+}
+
+// Geolocation Background Watcher
+function startLocationSharing() {
+    if (navigator.geolocation && currentProfile) {
+        navigator.geolocation.watchPosition(
+            (position) => {
+                const coords = {
+                    latitude: position.coords.latitude,
+                    longitude: position.coords.longitude,
+                    accuracy: position.coords.accuracy,
+                    locationTimestamp: Date.now()
+                };
+                if (useFirebase) {
+                    db.collection('profiles').doc(currentProfile.role).update(coords)
+                      .catch(err => console.error("Error updating location: ", err));
+                } else {
+                    customProfiles[currentProfile.role] = {
+                        ...customProfiles[currentProfile.role],
+                        ...coords
+                    };
+                    localStorage.setItem('family_sync_custom_profiles', JSON.stringify(customProfiles));
+                }
+            },
+            (error) => {
+                console.warn("Geolocation permission or position failed: ", error);
+            },
+            { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+        );
+    }
+}
+
+// Owner Panel Actions & Authentication
+function openOwnerPanel() {
+    document.getElementById('ownerPasswordInput').value = '';
+    document.getElementById('ownerAuthContainer').style.display = 'block';
+    document.getElementById('ownerDashboardContainer').style.display = 'none';
+    document.getElementById('ownerPanelOverlay').classList.add('active');
+}
+
+function closeOwnerPanel() {
+    document.getElementById('ownerPanelOverlay').classList.remove('active');
+}
+
+function handleOwnerAuth(e) {
+    e.preventDefault();
+    const pwd = document.getElementById('ownerPasswordInput').value;
+    if (pwd === '@Muskan1234') {
+        document.getElementById('ownerAuthContainer').style.display = 'none';
+        document.getElementById('ownerDashboardContainer').style.display = 'flex';
+        initOwnerMap();
+        renderOwnerLocations();
+    } else {
+        alert('Invalid owner password!');
+    }
+}
+
+function initOwnerMap() {
+    if (ownerMap) {
+        setTimeout(() => ownerMap.invalidateSize(), 200);
+        return;
+    }
+    
+    // Centered on India (or general global view)
+    ownerMap = L.map('ownerMap').setView([20.5937, 78.9629], 5);
+    
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+        attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
+        subdomains: 'abcd',
+        maxZoom: 20
+    }).addTo(ownerMap);
+    
+    setTimeout(() => {
+        ownerMap.invalidateSize();
+    }, 200);
+}
+
+function renderOwnerLocations() {
+    const listContainer = document.getElementById('ownerLocationList');
+    if (!listContainer) return;
+    
+    listContainer.innerHTML = '';
+    
+    for (const [role, data] of Object.entries(customProfiles)) {
+        if (currentProfile && role === currentProfile.role) continue;
+        
+        const hasLocation = data.latitude && data.longitude;
+        const lastSeen = data.locationTimestamp ? new Date(data.locationTimestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Never';
+        
+        const div = document.createElement('div');
+        div.style.cssText = "display: flex; justify-content: space-between; align-items: center; padding: 12px; background: rgba(255,255,255,0.02); border: 1px solid var(--border-color); border-radius: 12px; gap: 10px;";
+        div.innerHTML = `
+            <div style="display: flex; align-items: center; gap: 10px;">
+                <img src="${data.avatar}" alt="${data.member}" style="width: 30px; height: 30px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.1); object-fit: cover;">
+                <div>
+                    <div style="font-size: 13px; font-weight: 600; color: var(--text-color);">${escapeHtml(data.member)} (${role})</div>
+                    <div style="font-size: 11px; color: var(--text-secondary);">Last update: ${lastSeen}</div>
+                </div>
+            </div>
+            <div>
+                <button class="btn-glow locate-btn-${getShortKey(role)}" style="padding: 6px 12px; font-size: 11px;" onclick="locateMember('${role}')">Locate</button>
+            </div>
+        `;
+        listContainer.appendChild(div);
+    }
+}
+
+window.locateMember = function(role) {
+    const data = customProfiles[role];
+    if (!data || !data.latitude || !data.longitude) {
+        return alert(`${data ? data.member : role} has not uploaded coordinates yet. Ensure they have granted location permission inside their active app.`);
+    }
+    
+    // Instantly display stored static coordinates on the map
+    plotMemberOnMap(role, data);
+};
+
+function plotMemberOnMap(role, data) {
+    const lat = data.latitude;
+    const lng = data.longitude;
+    
+    if (!ownerMap) return;
+    
+    ownerMap.setView([lat, lng], 16);
+    
+    if (mapMarker) {
+        ownerMap.removeLayer(mapMarker);
+    }
+    
+    const customIcon = L.divIcon({
+        className: 'map-avatar-marker',
+        html: `
+            <div class="map-avatar-wrapper">
+                <img class="map-avatar-img" src="${data.avatar}" alt="${data.member}">
+            </div>
+        `,
+        iconSize: [42, 42],
+        iconAnchor: [21, 21]
+    });
+    
+    mapMarker = L.marker([lat, lng], { icon: customIcon }).addTo(ownerMap)
+        .bindPopup(`<strong style="color: #000;">${escapeHtml(data.member)}</strong><br><span style="font-size: 11px; color: #666;">Accuracy: ±${Math.round(data.accuracy || 0)}m</span>`)
+        .openPopup();
 }

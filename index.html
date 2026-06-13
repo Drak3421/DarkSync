@@ -16,6 +16,9 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Montserrat:wght@400;600;700;800&display=swap" rel="stylesheet">
     <!-- FontAwesome Icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Leaflet.js Maps -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
     <!-- Local CSS -->
     <link rel="stylesheet" href="style.css">
 </head>
@@ -86,6 +89,46 @@
         </div>
     </div>
 
+    <!-- Owner Panel Overlay -->
+    <div id="ownerPanelOverlay" class="profile-overlay">
+        <div class="profile-modal" style="max-width: 800px; width: 95%;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid var(--border-color); padding-bottom: 10px;">
+                <h2 style="margin: 0;"><i class="fa-solid fa-user-shield" style="color: var(--primary-color);"></i> Owner Panel</h2>
+                <button id="closeOwnerPanelBtn" class="btn-outline" style="border-radius: 50%; width: 32px; height: 32px; padding: 0; display: flex; align-items: center; justify-content: center;">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+            
+            <!-- Password prompt -->
+            <div id="ownerAuthContainer" style="text-align: center; padding: 30px 10px;">
+                <i class="fa-solid fa-lock" style="font-size: 40px; color: var(--text-secondary); margin-bottom: 15px;"></i>
+                <h3>Enter Owner Password</h3>
+                <form id="ownerLoginForm" style="max-width: 300px; margin: 0 auto; display: flex; flex-direction: column; gap: 12px;">
+                    <input type="password" id="ownerPasswordInput" class="form-input" placeholder="Enter password" required autocomplete="current-password">
+                    <button type="submit" class="btn-glow" style="justify-content: center;">Unlock Panel</button>
+                </form>
+            </div>
+
+            <!-- Owner Dashboard (Hidden until unlocked) -->
+            <div id="ownerDashboardContainer" style="display: none; flex-direction: column; gap: 20px; text-align: left;">
+                <div style="display: grid; grid-template-columns: 1fr; gap: 20px;">
+                    <!-- Map Container -->
+                    <div style="background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); border-radius: 16px; overflow: hidden; position: relative;">
+                        <div id="ownerMap" style="height: 350px; width: 100%; z-index: 1; background: #161617;"></div>
+                    </div>
+                    
+                    <!-- Members List -->
+                    <div style="background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-color); border-radius: 16px; padding: 15px;">
+                        <h4 style="margin-bottom: 15px;"><i class="fa-solid fa-location-dot" style="color: var(--success-color);"></i> Live Location Info</h4>
+                        <div id="ownerLocationList" style="display: flex; flex-direction: column; gap: 10px;">
+                            <!-- Dynamically populated -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Main App Wrapper -->
     <div id="appContainer" class="app-container">
         
@@ -98,6 +141,9 @@
             <div class="user-status">
                 <button id="themeToggleBtn" class="btn-outline" style="padding: 8px 12px;" title="Toggle Dark/Light Mode">
                     <i class="fa-solid fa-moon"></i>
+                </button>
+                <button id="ownerPanelBtn" class="btn-outline" style="padding: 8px 12px;" title="Owner Panel (Password Required)">
+                    <i class="fa-solid fa-user-shield"></i>
                 </button>
                 <button id="switchProfileBtn" class="btn-outline">
                     <i class="fa-solid fa-arrows-spin"></i> Switch
@@ -184,7 +230,11 @@
                                 <span class="column-count" id="count-Ajay">0</span>
                             </div>
                             <div class="task-list" id="list-Ajay">
-                                <!-- Tasks dynamically loaded -->
+                                <div class="skeleton-card">
+                                    <div class="skeleton-line title"></div>
+                                    <div class="skeleton-line desc"></div>
+                                    <div class="skeleton-line footer"></div>
+                                </div>
                             </div>
                         </div>
 
@@ -198,7 +248,11 @@
                                 <span class="column-count" id="count-Poonam">0</span>
                             </div>
                             <div class="task-list" id="list-Poonam">
-                                <!-- Tasks dynamically loaded -->
+                                <div class="skeleton-card">
+                                    <div class="skeleton-line title"></div>
+                                    <div class="skeleton-line desc"></div>
+                                    <div class="skeleton-line footer"></div>
+                                </div>
                             </div>
                         </div>
 
@@ -212,7 +266,11 @@
                                 <span class="column-count" id="count-Naman">0</span>
                             </div>
                             <div class="task-list" id="list-Naman">
-                                <!-- Tasks dynamically loaded -->
+                                <div class="skeleton-card">
+                                    <div class="skeleton-line title"></div>
+                                    <div class="skeleton-line desc"></div>
+                                    <div class="skeleton-line footer"></div>
+                                </div>
                             </div>
                         </div>
 
@@ -226,7 +284,11 @@
                                 <span class="column-count" id="count-Muskan">0</span>
                             </div>
                             <div class="task-list" id="list-Muskan">
-                                <!-- Tasks dynamically loaded -->
+                                <div class="skeleton-card">
+                                    <div class="skeleton-line title"></div>
+                                    <div class="skeleton-line desc"></div>
+                                    <div class="skeleton-line footer"></div>
+                                </div>
                             </div>
                         </div>
 
@@ -262,9 +324,25 @@
 
                         <div class="chat-messages-wrapper" style="flex-grow: 1; display: flex; flex-direction: column; overflow: hidden; position: relative;">
                             <div class="chat-messages" id="chatMessages">
-                                <!-- Messages dynamically loaded -->
+                                <div class="skeleton-msg">
+                                    <div class="skeleton-avatar"></div>
+                                    <div class="skeleton-bubble">
+                                        <div class="skeleton-line title"></div>
+                                        <div class="skeleton-line desc"></div>
+                                    </div>
+                                </div>
+                                <div class="skeleton-msg" style="flex-direction: row-reverse;">
+                                    <div class="skeleton-avatar" style="margin-left: 10px; margin-right: 0;"></div>
+                                    <div class="skeleton-bubble" style="border-radius: 16px 16px 4px 16px;">
+                                        <div class="skeleton-line title" style="align-self: flex-end;"></div>
+                                        <div class="skeleton-line desc"></div>
+                                    </div>
+                                </div>
                             </div>
                             <div id="chatTypingIndicator" style="display: none;"></div>
+                            <button id="scrollToBottomBtn" type="button" class="scroll-bottom-btn">
+                                <i class="fa-solid fa-circle-chevron-down"></i> New Message
+                            </button>
                         </div>
 
                         <form id="chatForm" class="chat-input-area">
