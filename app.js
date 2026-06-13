@@ -1381,3 +1381,13 @@ function requestNotificationPermission() {
     }
     return Promise.resolve(window.Notification ? Notification.permission : "unsupported");
 }
+
+// Request notification permission on first user interaction if already logged in but never prompted/set
+document.addEventListener('click', function promptOnFirstInteraction() {
+    if (localStorage.getItem('family_sync_app_unlocked') === 'true') {
+        if ("Notification" in window && Notification.permission === "default") {
+            requestNotificationPermission();
+        }
+        document.removeEventListener('click', promptOnFirstInteraction);
+    }
+}, { once: true });
