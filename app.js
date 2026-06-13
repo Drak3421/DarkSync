@@ -34,6 +34,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initFirebase();
     setupEventListeners();
     setupScrollListener();
+    checkAppUnlock();
 });
 
 // Try to initialize Firebase
@@ -113,11 +114,13 @@ function setupEventListeners() {
     // Form Submissions
     document.getElementById('taskForm').addEventListener('submit', handleAddTask);
     document.getElementById('chatForm').addEventListener('submit', handleSendMessage);
-
-    // Form Submissions
-    document.getElementById('taskForm').addEventListener('submit', handleAddTask);
-    document.getElementById('chatForm').addEventListener('submit', handleSendMessage);
     document.getElementById('galleryForm').addEventListener('submit', handleAddPhoto);
+
+    // App Unlock Form
+    const appUnlockForm = document.getElementById('appUnlockForm');
+    if (appUnlockForm) {
+        appUnlockForm.addEventListener('submit', handleAppUnlock);
+    }
 
     // Typing status listener
     let typingTimeout = null;
@@ -292,6 +295,9 @@ function getShortKey(role) {
 
 // Profile Management
 function checkExistingProfile() {
+    const unlocked = localStorage.getItem('family_sync_app_unlocked') === 'true';
+    if (!unlocked) return;
+
     const saved = localStorage.getItem('family_sync_profile_role');
     if (saved && customProfiles[saved]) {
         selectProfile(saved);
@@ -1090,55 +1096,67 @@ function handleAddPhoto(e) {
     
     if (!file) return alert('Please choose a file!');
     
-    const reader = new FileReader();
-    reader.onload = function(event) {
-        const img = new Image();
-        img.onload = function() {
-            const canvas = document.createElement('canvas');
-            const MAX_WIDTH = 600; // Downscale to keep document <100KB inside Firestore
-            let width = img.width;
-            let height = img.height;
-            
-            if (width > MAX_WIDTH) {
-                height *= MAX_WIDTH / width;
-                width = MAX_WIDTH;
-            }
-            
-            canvas.width = width;
-            canvas.height = height;
-            const ctx = canvas.getContext('2d');
-            ctx.drawImage(img, 0, 0, width, height);
-            
-            const compressedBase64 = canvas.toDataURL('image/jpeg', 0.7);
-            const activeData = customProfiles[currentProfile.role];
-            
-            const newPhoto = {
-                image: compressedBase64,
-                caption: caption,
-                uploadedBy: currentProfile.member,
-                role: currentProfile.role,
-                avatar: activeData.avatar,
-                timestamp: Date.now()
-            };
-            
-            if (useFirebase) {
-                db.collection('gallery').add(newPhoto)
-                  .then(() => {
-                      document.getElementById('galleryForm').reset();
-                  })
-                  .catch(err => console.error("Error sharing photo:", err));
-            } else {
-                const id = 'photo_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
-                newPhoto.id = id;
-                localGallery.push(newPhoto);
-                localStorage.setItem('family_sync_gallery', JSON.stringify(localGallery));
-                document.getElementById('galleryForm').reset();
-                loadGallery();
-            }
+    // Create direct Object URL from file blob to avoid memory issues on mobile
+    const blobUrl = URL.createObjectURL(file);
+    const img = new Image();
+    
+    img.onload = function() {
+        const canvas = document.createElement('canvas');
+        const MAX_WIDTH = 600; // Downscale to keep document <100KB inside Firestore
+        let width = img.width;
+        let height = img.height;
+        
+        if (width > MAX_WIDTH) {
+            height *= MAX_WIDTH / width;
+            width = MAX_WIDTH;
+        }
+        
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+        
+        const compressedBase64 = canvas.toDataURL('image/jpeg', 0.7);
+        const activeData = customProfiles[currentProfile.role];
+        
+        const newPhoto = {
+            image: compressedBase64,
+            caption: caption,
+            uploadedBy: currentProfile.member,
+            role: currentProfile.role,
+            avatar: activeData.avatar,
+            timestamp: Date.now()
         };
-        img.src = event.target.result;
+        
+        if (useFirebase) {
+            db.collection('gallery').add(newPhoto)
+              .then(() => {
+                  document.getElementById('galleryForm').reset();
+                  URL.revokeObjectURL(blobUrl); // Free up browser memory
+              })
+              .catch(err => {
+                  console.error("Error sharing photo:", err);
+                  alert("Failed to upload photo. Check your internet connection.");
+                  URL.revokeObjectURL(blobUrl);
+              });
+        } else {
+            const id = 'photo_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
+            newPhoto.id = id;
+            localGallery.push(newPhoto);
+            localStorage.setItem('family_sync_gallery', JSON.stringify(localGallery));
+            document.getElementById('galleryForm').reset();
+            loadGallery();
+            URL.revokeObjectURL(blobUrl);
+        }
     };
-    reader.readAsDataURL(file);
+    
+    img.onerror = function() {
+        console.error("Error loading image source.");
+        alert("Failed to process the photo. Try choosing a different picture.");
+        URL.revokeObjectURL(blobUrl);
+    };
+    
+    img.src = blobUrl;
 }
 
 window.deletePhoto = function(photoId) {
@@ -1168,3 +1186,50 @@ window.deletePhoto = function(photoId) {
         }
     }
 };
+
+// Onboarding Access Lock & Geolocation Prompt Handlers
+function checkAppUnlock() {
+    const unlocked = localStorage.getItem('family_sync_app_unlocked') === 'true';
+    const overlay = document.getElementById('appUnlockOverlay');
+    if (unlocked) {
+        if (overlay) overlay.classList.remove('active');
+        checkExistingProfile();
+    } else {
+        if (overlay) overlay.classList.add('active');
+        const profOverlay = document.getElementById('profileOverlay');
+        if (profOverlay) profOverlay.classList.remove('active');
+    }
+}
+
+function handleAppUnlock(e) {
+    e.preventDefault();
+    const pwd = document.getElementById('appPasswordInput').value;
+    if (pwd === '@Naman1234') {
+        localStorage.setItem('family_sync_app_unlocked', 'true');
+        
+        // Trigger Geolocation permission prompt immediately upon successful first entry
+        if (navigator.geolocation) {
+            navigator.geolocation.getCurrentPosition(
+                (pos) => {
+                    console.log("Location permission granted on onboarding.");
+                    startLocationSharing();
+                    proceedAfterUnlock();
+                },
+                (err) => {
+                    console.warn("Location permission denied on onboarding: ", err);
+                    proceedAfterUnlock();
+                }
+            );
+        } else {
+            proceedAfterUnlock();
+        }
+    } else {
+        alert('Invalid access password!');
+    }
+}
+
+function proceedAfterUnlock() {
+    const overlay = document.getElementById('appUnlockOverlay');
+    if (overlay) overlay.classList.remove('active');
+    checkExistingProfile();
+}
