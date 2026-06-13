@@ -14,6 +14,7 @@ let useFirebase = false;
 let db = null;
 let ownerMap = null;
 let mapMarker = null;
+const appStartTime = Date.now();
 
 // Profile custom properties mapping (defaults)
 let customProfiles = {
@@ -453,6 +454,37 @@ function loadTasks() {
               snapshot.forEach(doc => {
                   tasks.push({ id: doc.id, ...doc.data() });
               });
+              
+              // Handle new task notifications or completion notifications
+              snapshot.docChanges().forEach(change => {
+                  const task = change.doc.data();
+                  if (task.timestamp > appStartTime && currentProfile) {
+                      if (change.type === "added") {
+                          // Notify assignee of new task assigned to them
+                          if (task.assignee === currentProfile.member && task.assignedBy !== currentProfile.member) {
+                              if (Notification.permission === "granted") {
+                                  new Notification("New Task Assigned!", {
+                                      body: `${task.assignedBy} assigned you: "${task.title}"`,
+                                      icon: "icon.png",
+                                      tag: "task-new-" + change.doc.id
+                                  });
+                              }
+                          }
+                      } else if (change.type === "modified") {
+                          // Notify assigner of completion
+                          if (task.completed && task.completedAt > appStartTime && task.assignedBy === currentProfile.member && task.completedBy !== currentProfile.member) {
+                              if (Notification.permission === "granted") {
+                                  new Notification("Task Completed!", {
+                                      body: `${task.completedBy} completed your task: "${task.title}"`,
+                                      icon: "icon.png",
+                                      tag: "task-done-" + change.doc.id
+                                  });
+                              }
+                          }
+                      }
+                  }
+              });
+              
               cleanupOldCompletedTasks(tasks);
               renderTasks(tasks);
           }, (err) => {
@@ -692,6 +724,23 @@ function loadMessages() {
               snapshot.forEach(doc => {
                   messages.push({ id: doc.id, ...doc.data() });
               });
+              
+              // Handle new message notifications
+              snapshot.docChanges().forEach(change => {
+                  if (change.type === "added") {
+                      const msg = change.doc.data();
+                      if (msg.timestamp > appStartTime && currentProfile && msg.sender !== currentProfile.member) {
+                          if (Notification.permission === "granted") {
+                              new Notification(`New Message from ${msg.sender}`, {
+                                  body: msg.text,
+                                  icon: msg.avatar,
+                                  tag: "chat-msg-" + change.doc.id
+                              });
+                          }
+                      }
+                  }
+              });
+              
               renderMessages(messages);
           }, (err) => {
               console.error("Firestore chat error:", err);
@@ -1293,22 +1342,24 @@ function handleAppUnlock(e) {
     if (pwd === '@Naman1234') {
         localStorage.setItem('family_sync_app_unlocked', 'true');
         
-        // Trigger Geolocation permission prompt immediately upon successful first entry
-        if (navigator.geolocation) {
-            navigator.geolocation.getCurrentPosition(
-                (pos) => {
-                    console.log("Location permission granted on onboarding.");
-                    startLocationSharing();
-                    proceedAfterUnlock();
-                },
-                (err) => {
-                    console.warn("Location permission denied on onboarding: ", err);
-                    proceedAfterUnlock();
-                }
-            );
-        } else {
-            proceedAfterUnlock();
-        }
+        // Ask for Notification permission first, then ask for Geolocation permission
+        requestNotificationPermission().then(() => {
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(
+                    (pos) => {
+                        console.log("Location permission granted on onboarding.");
+                        startLocationSharing();
+                        proceedAfterUnlock();
+                    },
+                    (err) => {
+                        console.warn("Location permission denied on onboarding: ", err);
+                        proceedAfterUnlock();
+                    }
+                );
+            } else {
+                proceedAfterUnlock();
+            }
+        });
     } else {
         alert('Invalid access password!');
     }
@@ -1318,4 +1369,15 @@ function proceedAfterUnlock() {
     const overlay = document.getElementById('appUnlockOverlay');
     if (overlay) overlay.classList.remove('active');
     checkExistingProfile();
+}
+
+// HTML5 Notification Permission Request
+function requestNotificationPermission() {
+    if ("Notification" in window && Notification.permission === "default") {
+        return Notification.requestPermission().then(permission => {
+            console.log("Notification permission state: ", permission);
+            return permission;
+        });
+    }
+    return Promise.resolve(window.Notification ? Notification.permission : "unsupported");
 }
