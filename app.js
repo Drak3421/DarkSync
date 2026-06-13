@@ -86,6 +86,7 @@ function setupEventListeners() {
 
     // Edit avatar preview listener
     document.getElementById('editAvatarUrl').addEventListener('input', updateAvatarPreview);
+    document.getElementById('editAvatarFile').addEventListener('change', handleFileSelected);
 
     // Form Submissions
     document.getElementById('taskForm').addEventListener('submit', handleAddTask);
@@ -249,6 +250,46 @@ function updateAvatarPreview() {
     } else {
         previewImg.src = `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(inputVal)}`;
     }
+}
+
+function handleFileSelected(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = function(event) {
+        const img = new Image();
+        img.onload = function() {
+            const canvas = document.createElement('canvas');
+            const MAX_WIDTH = 128;
+            const MAX_HEIGHT = 128;
+            let width = img.width;
+            let height = img.height;
+
+            if (width > height) {
+                if (width > MAX_WIDTH) {
+                    height *= MAX_WIDTH / width;
+                    width = MAX_WIDTH;
+                }
+            } else {
+                if (height > MAX_HEIGHT) {
+                    width *= MAX_HEIGHT / height;
+                    height = MAX_HEIGHT;
+                }
+            }
+
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, width, height);
+
+            const compressedBase64 = canvas.toDataURL('image/jpeg', 0.7);
+            document.getElementById('editAvatarUrl').value = compressedBase64;
+            updateAvatarPreview();
+        };
+        img.src = event.target.result;
+    };
+    reader.readAsDataURL(file);
 }
 
 function saveProfileChanges() {
