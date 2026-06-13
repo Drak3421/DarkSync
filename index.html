@@ -6,10 +6,10 @@
     <title>DarkSync - Tasks & Chat</title>
     <!-- PWA Support -->
     <link rel="manifest" href="manifest.json">
-    <meta name="theme-color" content="#e50914">
+    <meta name="theme-color" content="#161617">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <link rel="apple-touch-icon" href="https://api.dicebear.com/7.x/bottts/svg?seed=FamilySync">
+    <link rel="apple-touch-icon" href="icon.png">
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -253,13 +253,18 @@
                         <div class="chat-header">
                             <div class="chat-room-info">
                                 <div class="pulse-dot"></div>
-                                <span style="font-weight: 700; font-size: 15px;">Main Lounge</span>
+                                <span style="font-weight: 700; font-size: 15px; margin-right: 15px;">Main Lounge</span>
+                                <div id="familyOnlineStatus" style="display: flex; align-items: center; gap: 10px; font-size: 11px; color: var(--text-secondary);">
+                                    <!-- Dynamic online members will load here -->
+                                </div>
                             </div>
-                            <span style="font-size: 11px; color: var(--text-secondary);">4 Members Connected</span>
                         </div>
 
-                        <div class="chat-messages" id="chatMessages">
-                            <!-- Messages dynamically loaded -->
+                        <div class="chat-messages-wrapper" style="flex-grow: 1; display: flex; flex-direction: column; overflow: hidden; position: relative;">
+                            <div class="chat-messages" id="chatMessages">
+                                <!-- Messages dynamically loaded -->
+                            </div>
+                            <div id="chatTypingIndicator" style="display: none;"></div>
                         </div>
 
                         <form id="chatForm" class="chat-input-area">

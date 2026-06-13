@@ -15,10 +15,10 @@ let db = null;
 
 // Profile custom properties mapping (defaults)
 let customProfiles = {
-    "Dad": { member: "Ajay Yadav", avatar: "https://api.dicebear.com/7.x/bottts/svg?seed=Ajay" },
-    "Mom": { member: "Poonam Yadav", avatar: "https://api.dicebear.com/7.x/bottts/svg?seed=Poonam" },
-    "Child 1": { member: "Naman", avatar: "https://api.dicebear.com/7.x/bottts/svg?seed=Naman" },
-    "Child 2": { member: "Muskan", avatar: "https://api.dicebear.com/7.x/bottts/svg?seed=Muskan" }
+    "Dad": { member: "Ajay Yadav", avatar: "https://api.dicebear.com/7.x/bottts/svg?seed=Ajay", lastActive: 0 },
+    "Mom": { member: "Poonam Yadav", avatar: "https://api.dicebear.com/7.x/bottts/svg?seed=Poonam", lastActive: 0 },
+    "Child 1": { member: "Naman", avatar: "https://api.dicebear.com/7.x/bottts/svg?seed=Naman", lastActive: 0 },
+    "Child 2": { member: "Muskan", avatar: "https://api.dicebear.com/7.x/bottts/svg?seed=Muskan", lastActive: 0 }
 };
 
 // Local Fallback Storage Cache
@@ -27,18 +27,9 @@ let localMessages = JSON.parse(localStorage.getItem('family_sync_messages')) || 
 
 // Initialize App
 document.addEventListener('DOMContentLoaded', () => {
+    initTheme();
     initFirebase();
     setupEventListeners();
-    
-    // Initialize Theme
-    const currentTheme = localStorage.getItem('family_sync_theme') || 'dark';
-    if (currentTheme === 'light') {
-        document.body.classList.add('light-theme');
-        const themeIcon = document.querySelector('#themeToggleBtn i');
-        if (themeIcon) {
-            themeIcon.className = 'fa-solid fa-sun';
-        }
-    }
 });
 
 // Try to initialize Firebase
@@ -47,7 +38,13 @@ function initFirebase() {
         try {
             firebase.initializeApp(firebaseConfig);
             // Silent anonymous authentication for database security in production mode
-            firebase.auth().signInAnonymously().catch(err => {
+            firebase.auth().signInAnonymously().then(() => {
+                // Start presence heartbeat
+                setInterval(pingPresence, 10000);
+                pingPresence();
+                // Listen to typing status
+                syncTypingStatus();
+            }).catch(err => {
                 console.warn("Anonymous login failed: ", err);
             });
             db = firebase.firestore();
@@ -77,6 +74,12 @@ function setupEventListeners() {
     // Profile Switch Button
     document.getElementById('switchProfileBtn').addEventListener('click', showProfileSelector);
 
+    // Theme Toggle Button
+    const themeBtn = document.getElementById('themeToggleBtn');
+    if (themeBtn) {
+        themeBtn.addEventListener('click', toggleTheme);
+    }
+
     // Active Badge Edit profile click
     document.getElementById('activeProfileBadge').addEventListener('click', openEditProfileModal);
 
@@ -91,6 +94,19 @@ function setupEventListeners() {
     // Form Submissions
     document.getElementById('taskForm').addEventListener('submit', handleAddTask);
     document.getElementById('chatForm').addEventListener('submit', handleSendMessage);
+
+    // Typing status listener
+    let typingTimeout = null;
+    document.getElementById('chatInput').addEventListener('input', () => {
+        setTypingState(true);
+        clearTimeout(typingTimeout);
+        typingTimeout = setTimeout(() => {
+            setTypingState(false);
+        }, 2000);
+    });
+    document.getElementById('chatInput').addEventListener('blur', () => {
+        setTypingState(false);
+    });
 
     // Tab Navigation
     document.querySelectorAll('.tab-btn').forEach(btn => {
@@ -107,18 +123,6 @@ function setupEventListeners() {
             }
         });
     });
-
-    // Theme Toggle Button
-    document.getElementById('themeToggleBtn').addEventListener('click', toggleThemeMode);
-}
-
-function toggleThemeMode() {
-    const isLight = document.body.classList.toggle('light-theme');
-    const themeIcon = document.querySelector('#themeToggleBtn i');
-    if (themeIcon) {
-        themeIcon.className = isLight ? 'fa-solid fa-sun' : 'fa-solid fa-moon';
-    }
-    localStorage.setItem('family_sync_theme', isLight ? 'light' : 'dark');
 }
 
 // Sync Profiles (Live sync or Local fallback)
@@ -132,6 +136,7 @@ function syncProfiles() {
                 }
             });
             updateProfileUI();
+            updateOnlineIndicators();
             checkExistingProfile();
         });
     } else {
@@ -140,7 +145,85 @@ function syncProfiles() {
             customProfiles = JSON.parse(savedCustom);
         }
         updateProfileUI();
+        updateOnlineIndicators();
         checkExistingProfile();
+    }
+}
+
+// Presence heartbeat
+function pingPresence() {
+    if (useFirebase && currentProfile) {
+        db.collection('profiles').doc(currentProfile.role).update({
+            lastActive: Date.now()
+        }).catch(err => console.error("Presence update failed: ", err));
+    }
+}
+
+// Render dynamic online indicators in header
+function updateOnlineIndicators() {
+    const container = document.getElementById('familyOnlineStatus');
+    if (!container) return;
+
+    let html = '';
+    const now = Date.now();
+    
+    for (const [role, data] of Object.entries(customProfiles)) {
+        const isOnline = (now - (data.lastActive || 0)) < 30000; // Active in last 30s
+        const statusClass = isOnline ? 'online' : 'offline';
+        
+        html += `
+            <div style="display: flex; align-items: center; gap: 6px;" title="${isOnline ? 'Online' : 'Offline'}">
+                <span class="status-dot ${statusClass}"></span>
+                <span>${escapeHtml(data.member)}</span>
+            </div>
+        `;
+    }
+    container.innerHTML = html;
+}
+
+// Typing indicators sync
+function setTypingState(isTyping) {
+    if (useFirebase && currentProfile) {
+        db.collection('typing').doc(currentProfile.role).set({
+            typing: isTyping,
+            member: currentProfile.member
+        }).catch(err => console.error("Typing status save failed: ", err));
+    }
+}
+
+function syncTypingStatus() {
+    if (useFirebase) {
+        db.collection('typing').onSnapshot(snapshot => {
+            let typingUsers = [];
+            snapshot.forEach(doc => {
+                const data = doc.data();
+                if (data.typing && doc.id !== (currentProfile ? currentProfile.role : '')) {
+                    typingUsers.push(data.member);
+                }
+            });
+            renderTypingStatus(typingUsers);
+        });
+    }
+}
+
+function renderTypingStatus(users) {
+    const el = document.getElementById('chatTypingIndicator');
+    if (!el) return;
+
+    if (users.length > 0) {
+        el.innerHTML = `
+            <div class="typing-indicator-container">
+                <span class="typing-text">${escapeHtml(users.join(', '))} ${users.length > 1 ? 'are' : 'is'} typing</span>
+                <div class="typing-dots">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                </div>
+            </div>
+        `;
+        el.style.display = 'block';
+    } else {
+        el.style.display = 'none';
     }
 }
 
@@ -245,7 +328,7 @@ function updateAvatarPreview() {
     
     if (!inputVal) {
         previewImg.src = "https://api.dicebear.com/7.x/bottts/svg?seed=Default";
-    } else if (inputVal.startsWith('http://') || inputVal.startsWith('https://')) {
+    } else if (inputVal.startsWith('http://') || inputVal.startsWith('https://') || inputVal.startsWith('data:')) {
         previewImg.src = inputVal;
     } else {
         previewImg.src = `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(inputVal)}`;
@@ -303,13 +386,14 @@ function saveProfileChanges() {
     let finalAvatar = avatarInput;
     if (!avatarInput) {
         finalAvatar = `https://api.dicebear.com/7.x/bottts/svg?seed=Default`;
-    } else if (!avatarInput.startsWith('http://') && !avatarInput.startsWith('https://')) {
+    } else if (!avatarInput.startsWith('http://') && !avatarInput.startsWith('https://') && !avatarInput.startsWith('data:')) {
         finalAvatar = `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(avatarInput)}`;
     }
 
     const updatedData = {
         member: newName,
-        avatar: finalAvatar
+        avatar: finalAvatar,
+        lastActive: Date.now()
     };
 
     if (useFirebase) {
@@ -349,9 +433,8 @@ function loadTasks() {
     }
 }
 
-// Auto-delete completed tasks after 48 hours
 function cleanupOldCompletedTasks(tasks) {
-    const limit48h = Date.now() - (48 * 60 * 60 * 1000); // 48 hours ago
+    const limit48h = Date.now() - (48 * 60 * 60 * 1000);
     tasks.forEach(task => {
         if (task.completed && task.completedAt && task.completedAt < limit48h) {
             if (useFirebase) {
@@ -427,7 +510,6 @@ function createTaskCard(task) {
     const isOwner = currentProfile && (currentProfile.member === task.assignedBy);
     const deleteBtnHtml = isOwner ? `<button class="btn-delete-task" onclick="deleteTask('${task.id}')" title="Delete Task"><i class="fa-solid fa-trash-can"></i></button>` : '';
 
-    // Done button can only be visible/pressed if current user is the assignee
     const isAssignee = currentProfile && (currentProfile.member === task.assignee);
     const doneBtnHtml = isAssignee 
         ? `<button class="btn-complete" onclick="markTaskDone('${task.id}')">Done</button>` 
@@ -598,9 +680,8 @@ function renderMessages(messages) {
         
         const timeString = msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
 
-        // Option to delete chats you sent
         const deleteMsgHtml = isOutgoing 
-            ? `<button onclick="deleteMessage('${msg.id}')" title="Delete Message" style="background:none; border:none; color:rgba(255,255,255,0.4); cursor:pointer; margin-left:8px; font-size:11px; transition:color 0.2s;"><i class="fa-solid fa-trash-can"></i></button>`
+            ? `<button onclick="deleteMessage('${msg.id}')" title="Delete Message" style="background:none; border:none; color:inherit; opacity:0.5; cursor:pointer; margin-left:8px; font-size:11px; transition:opacity 0.2s;"><i class="fa-solid fa-trash-can"></i></button>`
             : '';
 
         msgDiv.innerHTML = `
@@ -641,6 +722,7 @@ function handleSendMessage(e) {
         db.collection('chat').add(newMsg)
           .then(() => {
               input.value = '';
+              setTypingState(false);
           })
           .catch(err => console.error("Error sending message:", err));
     } else {
@@ -695,4 +777,33 @@ function escapeHtml(str) {
               .replace(/>/g, "&gt;")
               .replace(/"/g, "&quot;")
               .replace(/'/g, "&#039;");
+}
+
+// Theme Handling
+function initTheme() {
+    const savedTheme = localStorage.getItem('theme') || 'dark';
+    if (savedTheme === 'light') {
+        document.body.classList.add('light-theme');
+        updateThemeIcon('light');
+    } else {
+        document.body.classList.remove('light-theme');
+        updateThemeIcon('dark');
+    }
+}
+
+function toggleTheme() {
+    const isLight = document.body.classList.toggle('light-theme');
+    localStorage.setItem('theme', isLight ? 'light' : 'dark');
+    updateThemeIcon(isLight ? 'light' : 'dark');
+}
+
+function updateThemeIcon(theme) {
+    const icon = document.querySelector('#themeToggleBtn i');
+    if (icon) {
+        if (theme === 'light') {
+            icon.className = 'fa-solid fa-sun';
+        } else {
+            icon.className = 'fa-solid fa-moon';
+        }
+    }
 }
