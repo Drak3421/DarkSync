@@ -1540,6 +1540,58 @@ body.light-theme .reaction-badge:hover {
     background: rgba(0, 0, 0, 0.1) !important;
 }
 
+/* --- Mobile Performance Optimizations --- */
+@media (max-width: 768px) {
+    /* Disable expensive blur filters on background */
+    body::before, body::after {
+        filter: none !important;
+        opacity: 0.05 !important;
+        background: none !important;
+    }
+    
+    /* Remove backdrop-filters and use solid slightly opaque fallbacks */
+    header, 
+    .panel, 
+    .chat-container, 
+    .chat-layout,
+    .completed-tasks-container {
+        backdrop-filter: none !important;
+        -webkit-backdrop-filter: none !important;
+        background: rgba(28, 28, 30, 0.98) !important;
+    }
+    
+    body.light-theme header, 
+    body.light-theme .panel, 
+    body.light-theme .chat-container, 
+    body.light-theme .chat-layout,
+    body.light-theme .completed-tasks-container {
+        background: rgba(245, 245, 247, 0.98) !important;
+    }
+    
+    /* Simplify box shadows and hover transitions for mobile */
+    .task-card, .profile-card, .btn-glow {
+        box-shadow: none !important;
+        transform: none !important;
+    }
+    
+    .gallery-img {
+        transition: opacity 0.3s ease !important;
+    }
 
-
-
+    /* Fix chat layout collapsing and overlapping */
+    .chat-layout {
+        display: flex !important;
+        flex-direction: column !important;
+        height: 650px !important;
+    }
+    .chat-sidebar {
+        flex: 0 0 200px !important;
+        height: auto !important;
+        border-right: none !important;
+        border-bottom: 1px solid var(--border-color) !important;
+    }
+    .chat-container {
+        flex: 1 !important;
+        height: auto !important;
+    }
+}
