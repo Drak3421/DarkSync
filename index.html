@@ -9,7 +9,7 @@
     <meta name="theme-color" content="#161617">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <link rel="apple-touch-icon" href="icon.png">
+    <link rel="apple-touch-icon" href="icon.jpg">
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -97,11 +97,61 @@
                     <input type="file" id="editAvatarFile" class="form-input" accept="image/*" style="font-size: 12px; padding: 8px;">
                 </div>
 
+                <div class="form-group" style="border-top: 1px solid var(--border-color); padding-top: 15px; margin-top: 5px;">
+                    <label style="margin-bottom: 5px;">Profile PIN (Optional Change)</label>
+                    <div style="display: flex; gap: 10px;">
+                        <input type="password" id="editProfilePin" class="form-input" placeholder="New 4-digit PIN" pattern="[0-9]{4}" maxlength="4" autocomplete="off" style="flex: 1; text-align: center; font-size: 14px; letter-spacing: 2px;">
+                        <input type="password" id="editProfilePinConfirm" class="form-input" placeholder="Confirm PIN" pattern="[0-9]{4}" maxlength="4" autocomplete="off" style="flex: 1; text-align: center; font-size: 14px; letter-spacing: 2px;">
+                    </div>
+                </div>
+
                 <div style="display: flex; gap: 12px; margin-top: 10px;">
                     <button id="cancelEditProfileBtn" class="btn-outline" style="flex: 1;">Cancel</button>
                     <button id="saveProfileBtn" class="btn-glow" style="flex: 1; justify-content: center;">Save Changes</button>
                 </div>
             </div>
+        </div>
+    </div>
+
+    <!-- Profile PIN Entry Overlay -->
+    <div id="profilePinEntryOverlay" class="profile-overlay">
+        <div class="profile-modal" style="max-width: 380px;">
+            <i class="fa-solid fa-key" style="font-size: 44px; color: var(--primary-color); margin-bottom: 15px;"></i>
+            <h2 id="pinEntryTitle">Enter Profile PIN</h2>
+            <p id="pinEntrySubtitle" style="font-size: 13px; color: var(--text-secondary); margin-top: 5px; margin-bottom: 25px;">Enter your 4-digit PIN to access this profile</p>
+            <form id="profilePinEntryForm" style="display: flex; flex-direction: column; gap: 15px; text-align: left;">
+                <div class="form-group">
+                    <label for="profilePinInput">4-Digit PIN</label>
+                    <input type="password" id="profilePinInput" class="form-input" placeholder="••••" pattern="[0-9]{4}" maxlength="4" required autocomplete="off" style="text-align: center; font-size: 24px; letter-spacing: 15px; padding-left: 25px;">
+                </div>
+                <div style="display: flex; gap: 10px;">
+                    <button type="button" id="cancelPinEntryBtn" class="btn-outline" style="flex: 1;">Cancel</button>
+                    <button type="submit" class="btn-glow" style="flex: 1; justify-content: center;">Verify PIN</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Profile PIN Setup Overlay -->
+    <div id="profilePinSetupOverlay" class="profile-overlay">
+        <div class="profile-modal" style="max-width: 380px;">
+            <i class="fa-solid fa-lock" style="font-size: 44px; color: var(--primary-color); margin-bottom: 15px;"></i>
+            <h2 id="pinSetupTitle">Set Profile PIN</h2>
+            <p id="pinSetupSubtitle" style="font-size: 13px; color: var(--text-secondary); margin-top: 5px; margin-bottom: 25px;">Create a 4-digit PIN for your profile</p>
+            <form id="profilePinSetupForm" style="display: flex; flex-direction: column; gap: 15px; text-align: left;">
+                <div class="form-group">
+                    <label for="profilePinSetupInput">Choose a 4-Digit PIN</label>
+                    <input type="password" id="profilePinSetupInput" class="form-input" placeholder="••••" pattern="[0-9]{4}" maxlength="4" required autocomplete="off" style="text-align: center; font-size: 24px; letter-spacing: 15px; padding-left: 25px;">
+                </div>
+                <div class="form-group">
+                    <label for="profilePinConfirmInput">Confirm 4-Digit PIN</label>
+                    <input type="password" id="profilePinConfirmInput" class="form-input" placeholder="••••" pattern="[0-9]{4}" maxlength="4" required autocomplete="off" style="text-align: center; font-size: 24px; letter-spacing: 15px; padding-left: 25px;">
+                </div>
+                <div style="display: flex; gap: 10px;">
+                    <button type="button" id="cancelPinSetupBtn" class="btn-outline" style="flex: 1;">Cancel</button>
+                    <button type="submit" class="btn-glow" style="flex: 1; justify-content: center;">Set PIN</button>
+                </div>
+            </form>
         </div>
     </div>
 
@@ -145,6 +195,41 @@
         </div>
     </div>
 
+    <!-- Manage Family Members Overlay -->
+    <div id="manageFamilyOverlay" class="profile-overlay">
+        <div class="profile-modal" style="max-width: 500px; width: 95%;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid var(--border-color); padding-bottom: 10px;">
+                <h2 style="margin: 0;"><i class="fa-solid fa-users" style="color: var(--primary-color);"></i> Manage Family</h2>
+                <button id="closeManageFamilyBtn" class="btn-outline" style="border-radius: 50%; width: 32px; height: 32px; padding: 0; display: flex; align-items: center; justify-content: center;">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+            
+            <div style="max-height: 250px; overflow-y: auto; margin-bottom: 20px; display: flex; flex-direction: column; gap: 10px; border: 1px solid var(--border-color); padding: 12px; border-radius: 12px; background: rgba(0,0,0,0.1);" id="manageFamilyList">
+                <!-- Dynamically populated list of family members with delete buttons -->
+            </div>
+
+            <h3 style="text-align: left; margin-bottom: 10px; font-size: 14px; color: var(--text-color);">Add New Member</h3>
+            <form id="addMemberForm" style="display: flex; flex-direction: column; gap: 12px; text-align: left; background: rgba(255,255,255,0.02); padding: 15px; border-radius: 12px; border: 1px solid var(--border-color);">
+                <div style="display: flex; gap: 10px;">
+                    <div class="form-group" style="flex: 1;">
+                        <label for="newMemberName">Name</label>
+                        <input type="text" id="newMemberName" class="form-input" placeholder="e.g. Rahul" required>
+                    </div>
+                    <div class="form-group" style="flex: 1;">
+                        <label for="newMemberRole">Role/Column Name</label>
+                        <input type="text" id="newMemberRole" class="form-input" placeholder="e.g. Uncle" required>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="newMemberAvatar">Avatar Seed</label>
+                    <input type="text" id="newMemberAvatar" class="form-input" placeholder="Type a seed word (e.g. Bot1) to auto-generate avatar">
+                </div>
+                <button type="submit" class="btn-glow" style="justify-content: center; margin-top: 5px;"><i class="fa-solid fa-user-plus"></i> Add Family Member</button>
+            </form>
+        </div>
+    </div>
+
     <!-- Main App Wrapper -->
     <div id="appContainer" class="app-container">
         
@@ -160,6 +245,9 @@
                 </button>
                 <button id="ownerPanelBtn" class="btn-outline" style="padding: 8px 12px;" title="Owner Panel (Password Required)">
                     <i class="fa-solid fa-user-shield"></i>
+                </button>
+                <button id="manageFamilyBtn" class="btn-outline" style="padding: 8px 12px;" title="Manage Family (Password Required)">
+                    <i class="fa-solid fa-users"></i>
                 </button>
                 <button id="switchProfileBtn" class="btn-outline">
                     <i class="fa-solid fa-arrows-spin"></i> Switch
@@ -211,6 +299,22 @@
                         </select>
                     </div>
 
+                    <div class="form-group" style="margin-top: 15px;">
+                        <label for="taskCategory">Category</label>
+                        <select id="taskCategory" class="form-select">
+                            <option value="Chores" selected>🧹 Chores</option>
+                            <option value="Grocery">🛒 Grocery</option>
+                            <option value="Study">📚 Study</option>
+                            <option value="Finance">💳 Finance</option>
+                            <option value="Other">✨ Other</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group" style="margin-top: 15px;">
+                        <label for="taskDueDate">Due Date</label>
+                        <input type="date" id="taskDueDate" class="form-input">
+                    </div>
+
                     <button type="submit" class="btn-glow" style="margin-top: 20px; width: 100%; justify-content: center;">
                         <i class="fa-solid fa-paper-plane"></i> Assign Task
                     </button>
@@ -236,81 +340,37 @@
                 <!-- Tab 1: Tasks Board -->
                 <div id="tasksTab" class="tab-content active">
                     
-                    <!-- Board Columns -->
-                    <div class="tasks-grid">
-                        
-                        <!-- Dad's Column -->
-                        <div class="task-column" data-role="Dad">
-                            <div class="column-header">
-                                <div class="column-user-info">
-                                    <img src="https://api.dicebear.com/7.x/bottts/svg?seed=Ajay" alt="Dad" style="width: 24px; height: 24px; border-radius: 50%;">
-                                    <span class="column-title">Dad (Ajay)</span>
-                                </div>
-                                <span class="column-count" id="count-Ajay">0</span>
+                    <!-- Task Board Controls -->
+                    <div style="display: flex; gap: 15px; margin-bottom: 20px; flex-wrap: wrap; background: var(--card-bg); padding: 12px 20px; border-radius: 16px; border: 1px solid var(--border-color); align-items: center; justify-content: space-between;">
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <span style="font-size: 12px; font-weight: 600; text-transform: uppercase; color: var(--text-secondary);"><i class="fa-solid fa-sliders"></i> Filter & Sort:</span>
+                        </div>
+                        <div style="display: flex; gap: 15px; flex-wrap: wrap;">
+                            <div class="form-group" style="flex-direction: row; align-items: center; gap: 8px;">
+                                <label style="margin: 0; font-size: 12px; font-weight: 500;">Category</label>
+                                <select id="filterCategory" class="form-select" style="padding: 6px 12px; font-size: 12px; background: rgba(0,0,0,0.2);">
+                                    <option value="All" selected>All Categories</option>
+                                    <option value="Chores">🧹 Chores</option>
+                                    <option value="Grocery">🛒 Grocery</option>
+                                    <option value="Study">📚 Study</option>
+                                    <option value="Finance">💳 Finance</option>
+                                    <option value="Other">✨ Other</option>
+                                </select>
                             </div>
-                            <div class="task-list" id="list-Ajay">
-                                <div class="skeleton-card">
-                                    <div class="skeleton-line title"></div>
-                                    <div class="skeleton-line desc"></div>
-                                    <div class="skeleton-line footer"></div>
-                                </div>
+                            <div class="form-group" style="flex-direction: row; align-items: center; gap: 8px;">
+                                <label style="margin: 0; font-size: 12px; font-weight: 500;">Sort By</label>
+                                <select id="sortTasks" class="form-select" style="padding: 6px 12px; font-size: 12px; background: rgba(0,0,0,0.2);">
+                                    <option value="priority" selected>Priority (High to Low)</option>
+                                    <option value="dueDate">Due Date</option>
+                                    <option value="dateCreated">Date Created</option>
+                                </select>
                             </div>
                         </div>
+                    </div>
 
-                        <!-- Mom's Column -->
-                        <div class="task-column" data-role="Mom">
-                            <div class="column-header">
-                                <div class="column-user-info">
-                                    <img src="https://api.dicebear.com/7.x/bottts/svg?seed=Poonam" alt="Mom" style="width: 24px; height: 24px; border-radius: 50%;">
-                                    <span class="column-title">Mom (Poonam)</span>
-                                </div>
-                                <span class="column-count" id="count-Poonam">0</span>
-                            </div>
-                            <div class="task-list" id="list-Poonam">
-                                <div class="skeleton-card">
-                                    <div class="skeleton-line title"></div>
-                                    <div class="skeleton-line desc"></div>
-                                    <div class="skeleton-line footer"></div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Child 1 Column -->
-                        <div class="task-column" data-role="Child 1">
-                            <div class="column-header">
-                                <div class="column-user-info">
-                                    <img src="https://api.dicebear.com/7.x/bottts/svg?seed=Naman" alt="Naman" style="width: 24px; height: 24px; border-radius: 50%;">
-                                    <span class="column-title">Naman</span>
-                                </div>
-                                <span class="column-count" id="count-Naman">0</span>
-                            </div>
-                            <div class="task-list" id="list-Naman">
-                                <div class="skeleton-card">
-                                    <div class="skeleton-line title"></div>
-                                    <div class="skeleton-line desc"></div>
-                                    <div class="skeleton-line footer"></div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Child 2 Column -->
-                        <div class="task-column" data-role="Child 2">
-                            <div class="column-header">
-                                <div class="column-user-info">
-                                    <img src="https://api.dicebear.com/7.x/bottts/svg?seed=Muskan" alt="Muskan" style="width: 24px; height: 24px; border-radius: 50%;">
-                                    <span class="column-title">Muskan</span>
-                                </div>
-                                <span class="column-count" id="count-Muskan">0</span>
-                            </div>
-                            <div class="task-list" id="list-Muskan">
-                                <div class="skeleton-card">
-                                    <div class="skeleton-line title"></div>
-                                    <div class="skeleton-line desc"></div>
-                                    <div class="skeleton-line footer"></div>
-                                </div>
-                            </div>
-                        </div>
-
+                    <!-- Dynamic Board Columns -->
+                    <div class="tasks-grid" id="dynamicTasksGrid">
+                        <!-- Columns generated dynamically in JS -->
                     </div>
 
                     <!-- What They Did Section -->
@@ -330,46 +390,53 @@
 
                 <!-- Tab 2: Family Chat Room -->
                 <div id="chatTab" class="tab-content">
-                    <div class="chat-container">
-                        <div class="chat-header">
-                            <div class="chat-room-info">
-                                <div class="pulse-dot"></div>
-                                <span style="font-weight: 700; font-size: 15px; margin-right: 15px;">Main Lounge</span>
-                                <div id="familyOnlineStatus" style="display: flex; align-items: center; gap: 10px; font-size: 11px; color: var(--text-secondary);">
-                                    <!-- Dynamic online members will load here -->
-                                </div>
+                    <div class="chat-layout">
+                        <!-- Chat Sidebar (DMs & Rooms list) -->
+                        <div class="chat-sidebar" style="border-right: 1px solid var(--border-color); display: flex; flex-direction: column; background: rgba(0, 0, 0, 0.15);">
+                            <div style="padding: 15px; border-bottom: 1px solid var(--border-color); font-weight: 600; font-size: 11px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.05em;">Channels</div>
+                            <div class="chat-room-item active" id="channelMain" data-room-id="main" style="padding: 12px 15px; cursor: pointer; display: flex; align-items: center; gap: 10px; font-size: 13px; font-weight: 500; transition: var(--transition); border-left: 3px solid var(--primary-color); background: rgba(255, 255, 255, 0.02);">
+                                <i class="fa-solid fa-comments" style="color: var(--primary-color);"></i> Main Lounge
+                            </div>
+                            
+                            <div style="padding: 15px 15px 8px 15px; font-weight: 600; font-size: 11px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.05em; border-top: 1px solid var(--border-color); margin-top: 10px;">Direct Messages</div>
+                            <div id="dmList" style="display: flex; flex-direction: column; flex-grow: 1; overflow-y: auto;">
+                                <!-- Dynamic list of members for DMs -->
                             </div>
                         </div>
 
-                        <div class="chat-messages-wrapper" style="flex-grow: 1; display: flex; flex-direction: column; overflow: hidden; position: relative;">
-                            <div class="chat-messages" id="chatMessages">
-                                <div class="skeleton-msg">
-                                    <div class="skeleton-avatar"></div>
-                                    <div class="skeleton-bubble">
-                                        <div class="skeleton-line title"></div>
-                                        <div class="skeleton-line desc"></div>
-                                    </div>
-                                </div>
-                                <div class="skeleton-msg" style="flex-direction: row-reverse;">
-                                    <div class="skeleton-avatar" style="margin-left: 10px; margin-right: 0;"></div>
-                                    <div class="skeleton-bubble" style="border-radius: 16px 16px 4px 16px;">
-                                        <div class="skeleton-line title" style="align-self: flex-end;"></div>
-                                        <div class="skeleton-line desc"></div>
+                        <!-- Chat Container -->
+                        <div class="chat-container" style="border: none; border-radius: 0; background: transparent; height: 100%;">
+                            <div class="chat-header">
+                                <div class="chat-room-info">
+                                    <div class="pulse-dot"></div>
+                                    <span id="activeChatRoomName" style="font-weight: 700; font-size: 15px; margin-right: 15px;">Main Lounge</span>
+                                    <div id="familyOnlineStatus" style="display: flex; align-items: center; gap: 10px; font-size: 11px; color: var(--text-secondary);">
+                                        <!-- Dynamic online members will load here -->
                                     </div>
                                 </div>
                             </div>
-                            <div id="chatTypingIndicator" style="display: none;"></div>
-                            <button id="scrollToBottomBtn" type="button" class="scroll-bottom-btn">
-                                <i class="fa-solid fa-circle-chevron-down"></i> New Message
-                            </button>
-                        </div>
 
-                        <form id="chatForm" class="chat-input-area">
-                            <input type="text" id="chatInput" class="chat-input" placeholder="Type a message..." required autocomplete="off">
-                            <button type="submit" class="btn-send">
-                                <i class="fa-solid fa-paper-plane"></i>
-                            </button>
-                        </form>
+                            <div class="chat-messages-wrapper" style="flex-grow: 1; display: flex; flex-direction: column; overflow: hidden; position: relative;">
+                                <div class="chat-messages" id="chatMessages">
+                                    <!-- Messages load here -->
+                                </div>
+                                <div id="chatTypingIndicator" style="display: none;"></div>
+                                <button id="scrollToBottomBtn" type="button" class="scroll-bottom-btn">
+                                    <i class="fa-solid fa-circle-chevron-down"></i> New Message
+                                </button>
+                            </div>
+
+                            <form id="chatForm" class="chat-input-area" style="align-items: center;">
+                                <button type="button" id="chatAttachBtn" class="btn-outline" style="padding: 0; border-radius: 50%; font-size: 14px; display: flex; align-items: center; justify-content: center; height: 42px; width: 42px; flex-shrink: 0; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08);">
+                                    <i class="fa-solid fa-paperclip"></i>
+                                </button>
+                                <input type="file" id="chatAttachInput" accept="image/*" style="display: none;">
+                                <input type="text" id="chatInput" class="chat-input" placeholder="Type a message..." required autocomplete="off" style="margin: 0;">
+                                <button type="submit" class="btn-send" style="height: 42px; width: 42px; flex-shrink: 0;">
+                                    <i class="fa-solid fa-paper-plane"></i>
+                                </button>
+                            </form>
+                        </div>
                     </div>
                 </div>
 
@@ -414,6 +481,60 @@
 
         </div>
 
+    </div>
+
+    <!-- Gallery Lightbox Modal -->
+    <div id="galleryLightboxModal" class="profile-overlay" style="background: rgba(0, 0, 0, 0.95); z-index: 1005;">
+        <div style="position: absolute; top: 15px; right: 20px; z-index: 1010; display: flex; gap: 15px;">
+            <button id="closeLightboxBtn" class="btn-outline" style="border-radius: 50%; width: 40px; height: 40px; padding: 0; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,0.1); border: none; font-size: 20px; color: #fff;">
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+        </div>
+
+        <button id="prevLightboxBtn" style="position: absolute; left: 15px; top: 50%; transform: translateY(-50%); z-index: 1008; background: rgba(0,0,0,0.5); border: none; color: #fff; width: 44px; height: 44px; border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 20px; transition: var(--transition);">
+            <i class="fa-solid fa-chevron-left"></i>
+        </button>
+        <button id="nextLightboxBtn" style="position: absolute; right: 15px; top: 50%; transform: translateY(-50%); z-index: 1008; background: rgba(0,0,0,0.5); border: none; color: #fff; width: 44px; height: 44px; border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 20px; transition: var(--transition);">
+            <i class="fa-solid fa-chevron-right"></i>
+        </button>
+
+        <div class="lightbox-content" style="display: grid; grid-template-columns: 1fr; width: 95%; max-width: 960px; height: 85vh; background: #1c1c1e; border: 1px solid var(--border-color); border-radius: 20px; overflow: hidden; position: relative;">
+            <div style="flex-grow: 1; display: flex; align-items: center; justify-content: center; background: #000; overflow: hidden; position: relative; height: 100%;">
+                <img id="lightboxImage" src="" alt="Lightbox view" style="max-width: 100%; max-height: 100%; object-fit: contain; cursor: zoom-in; transition: transform 0.3s ease;">
+                <div style="position: absolute; bottom: 15px; left: 15px; display: flex; gap: 8px; z-index: 10;">
+                    <button id="zoomInBtn" class="btn-outline" style="padding: 6px 12px; font-size: 11px; background: rgba(0,0,0,0.6); border: none; color: #fff;"><i class="fa-solid fa-magnifying-glass-plus"></i> Zoom In</button>
+                    <button id="zoomOutBtn" class="btn-outline" style="padding: 6px 12px; font-size: 11px; background: rgba(0,0,0,0.6); border: none; color: #fff;"><i class="fa-solid fa-magnifying-glass-minus"></i> Zoom Out</button>
+                </div>
+            </div>
+
+            <div class="lightbox-info-panel" style="width: 100%; background: #1c1c1e; border-top: 1px solid var(--border-color); display: flex; flex-direction: column; height: 100%; padding: 20px; overflow: hidden; text-align: left;">
+                <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 15px; border-bottom: 1px solid var(--border-color); padding-bottom: 12px;">
+                    <img id="lightboxUploaderAvatar" src="" style="width: 36px; height: 36px; border-radius: 50%;">
+                    <div style="flex-grow: 1;">
+                        <div id="lightboxUploaderName" style="font-size: 13px; font-weight: 600; color: var(--text-color);"></div>
+                        <div id="lightboxTime" style="font-size: 11px; color: var(--text-secondary);"></div>
+                    </div>
+                </div>
+                
+                <div id="lightboxCaption" style="font-size: 13px; line-height: 1.4; color: var(--text-color); margin-bottom: 15px; max-height: 80px; overflow-y: auto; word-break: break-all;"></div>
+
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 15px; border-bottom: 1px solid var(--border-color); padding-bottom: 12px;">
+                    <button id="lightboxLikeBtn" class="btn-glow" style="padding: 6px 16px; font-size: 12px; background: rgba(255, 59, 48, 0.15); color: var(--accent-color); border: 1px solid rgba(255, 59, 48, 0.2);">
+                        <i class="fa-regular fa-heart"></i> <span id="lightboxLikeText">Like</span>
+                    </button>
+                    <span id="lightboxLikeCount" style="font-size: 12px; color: var(--text-secondary); font-weight: 500;">0 likes</span>
+                </div>
+
+                <div style="flex-grow: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; margin-bottom: 15px;" id="lightboxCommentsList">
+                    <!-- Comments render here -->
+                </div>
+
+                <form id="lightboxCommentForm" style="display: flex; gap: 8px;">
+                    <input type="text" id="lightboxCommentInput" class="form-input" placeholder="Write a comment..." required style="flex-grow: 1; padding: 8px 12px; font-size: 13px;">
+                    <button type="submit" class="btn-glow" style="padding: 8px 16px; font-size: 13px; justify-content: center;"><i class="fa-solid fa-paper-plane"></i></button>
+                </form>
+            </div>
+        </div>
     </div>
 
     <!-- Firebase SDKs -->

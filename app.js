@@ -10,10 +10,19 @@ const firebaseConfig = {
 
 // Current active profile role
 let currentProfile = null;
+let pendingProfileRole = null;
+let loadedTasks = [];
+let activeChatRoom = 'main';
+let chatListener = null;
 let useFirebase = false;
+let loadedGalleryPhotos = [];
+let activePhotoIndex = -1;
+let lightboxZoomLevel = 1;
 let db = null;
 let ownerMap = null;
 let mapMarker = null;
+let historyPolyline = null;
+let historyMarkers = [];
 const appStartTime = Date.now();
 
 // Profile custom properties mapping (defaults)
@@ -43,6 +52,21 @@ function initFirebase() {
     if (typeof firebase !== 'undefined' && firebaseConfig.apiKey !== 'YOUR_API_KEY') {
         try {
             firebase.initializeApp(firebaseConfig);
+            const firestoreDb = firebase.firestore();
+            firestoreDb.settings({ cacheSizeBytes: firebase.firestore.CACHE_SIZE_UNLIMITED });
+            firestoreDb.enablePersistence().catch(err => {
+                if (err.code == 'failed-precondition') {
+                    console.warn("Firestore persistence failed: Multiple tabs open");
+                } else if (err.code == 'unimplemented') {
+                    console.warn("Firestore persistence is not supported by this browser");
+                } else {
+                    console.warn("Firestore persistence initialization failed:", err);
+                }
+            });
+            db = firestoreDb;
+            useFirebase = true;
+            console.log('Firebase Realtime Sync Activated!');
+
             firebase.auth().signInAnonymously().then(() => {
                 // Start presence heartbeat (every 30s)
                 setInterval(pingPresence, 30000);
@@ -54,9 +78,6 @@ function initFirebase() {
             }).catch(err => {
                 console.warn("Anonymous login failed: ", err);
             });
-            db = firebase.firestore();
-            useFirebase = true;
-            console.log('Firebase Realtime Sync Activated!');
         } catch (e) {
             console.warn('Firebase failed to initialize, falling back to Local Storage mode.', e);
         }
@@ -70,13 +91,32 @@ function initFirebase() {
 
 // Set up UI events
 function setupEventListeners() {
-    // Profile Selection Cards
-    document.querySelectorAll('.profile-card').forEach(card => {
-        card.addEventListener('click', () => {
-            const role = card.dataset.role;
-            selectProfile(role);
+    // Profile Selection Event Delegation
+    const profileContainer = document.getElementById('profileListContainer');
+    if (profileContainer) {
+        profileContainer.addEventListener('click', (e) => {
+            const card = e.target.closest('.profile-card');
+            if (card) {
+                const role = card.dataset.role;
+                handleProfileCardClick(role);
+            }
         });
+    }
+
+    // PIN modal actions
+    document.getElementById('cancelPinEntryBtn').addEventListener('click', () => {
+        document.getElementById('profilePinEntryOverlay').classList.remove('active');
+        document.getElementById('profilePinInput').value = '';
     });
+    document.getElementById('cancelPinSetupBtn').addEventListener('click', () => {
+        document.getElementById('profilePinSetupOverlay').classList.remove('active');
+        document.getElementById('profilePinSetupInput').value = '';
+        document.getElementById('profilePinConfirmInput').value = '';
+    });
+
+    // Form Submissions for PIN
+    document.getElementById('profilePinEntryForm').addEventListener('submit', handlePinEntrySubmit);
+    document.getElementById('profilePinSetupForm').addEventListener('submit', handlePinSetupSubmit);
 
     // Profile Switch Button
     document.getElementById('switchProfileBtn').addEventListener('click', showProfileSelector);
@@ -93,6 +133,115 @@ function setupEventListeners() {
     // Cancel / Save Edit Profile
     document.getElementById('cancelEditProfileBtn').addEventListener('click', closeEditProfileModal);
     document.getElementById('saveProfileBtn').addEventListener('click', saveProfileChanges);
+
+    // Manage Family Buttons
+    const manageFamilyBtn = document.getElementById('manageFamilyBtn');
+    if (manageFamilyBtn) {
+        manageFamilyBtn.addEventListener('click', () => {
+            const pwd = prompt("Enter owner password to manage family:");
+            if (pwd === '@Muskan1234') {
+                openManageFamilyModal();
+            } else if (pwd !== null) {
+                alert("Incorrect password!");
+            }
+        });
+    }
+
+    const closeManageFamilyBtn = document.getElementById('closeManageFamilyBtn');
+    if (closeManageFamilyBtn) {
+        closeManageFamilyBtn.addEventListener('click', () => {
+            document.getElementById('manageFamilyOverlay').classList.remove('active');
+        });
+    }
+
+    const addMemberForm = document.getElementById('addMemberForm');
+    if (addMemberForm) {
+        addMemberForm.addEventListener('submit', handleAddMember);
+    }
+
+    // Task Board sorting & filtering changes
+    const filterCat = document.getElementById('filterCategory');
+    if (filterCat) {
+        filterCat.addEventListener('change', () => renderTasks(loadedTasks));
+    }
+    const sortTasks = document.getElementById('sortTasks');
+    if (sortTasks) {
+        sortTasks.addEventListener('change', () => renderTasks(loadedTasks));
+    }
+
+    // Chat Sidebar switching
+    const chatSidebar = document.querySelector('.chat-sidebar');
+    if (chatSidebar) {
+        chatSidebar.addEventListener('click', (e) => {
+            const item = e.target.closest('.chat-room-item');
+            if (item) {
+                chatSidebar.querySelectorAll('.chat-room-item').forEach(el => {
+                    el.classList.remove('active');
+                    el.style.borderLeft = 'none';
+                    el.style.background = 'transparent';
+                });
+                
+                item.classList.add('active');
+                item.style.borderLeft = '3px solid var(--primary-color)';
+                item.style.background = 'rgba(255, 255, 255, 0.02)';
+                
+                const roomId = item.dataset.roomId;
+                const roomName = item.dataset.roomName || 'Main Lounge';
+                switchChatRoom(roomId, roomName);
+            }
+        });
+    }
+
+    // Image Attachment Button
+    const attachBtn = document.getElementById('chatAttachBtn');
+    const attachInput = document.getElementById('chatAttachInput');
+    if (attachBtn && attachInput) {
+        attachBtn.addEventListener('click', () => attachInput.click());
+        attachInput.addEventListener('change', handleChatImageUpload);
+    }
+
+    // Lightbox Controls
+    const closeLightboxBtn = document.getElementById('closeLightboxBtn');
+    if (closeLightboxBtn) {
+        closeLightboxBtn.addEventListener('click', closeLightbox);
+    }
+    const prevLightboxBtn = document.getElementById('prevLightboxBtn');
+    if (prevLightboxBtn) {
+        prevLightboxBtn.addEventListener('click', showPrevPhoto);
+    }
+    const nextLightboxBtn = document.getElementById('nextLightboxBtn');
+    if (nextLightboxBtn) {
+        nextLightboxBtn.addEventListener('click', showNextPhoto);
+    }
+    const zoomInBtn = document.getElementById('zoomInBtn');
+    if (zoomInBtn) {
+        zoomInBtn.addEventListener('click', () => {
+            lightboxZoomLevel = Math.min(3, lightboxZoomLevel + 0.25);
+            updateLightboxZoom();
+        });
+    }
+    const zoomOutBtn = document.getElementById('zoomOutBtn');
+    if (zoomOutBtn) {
+        zoomOutBtn.addEventListener('click', () => {
+            lightboxZoomLevel = Math.max(0.5, lightboxZoomLevel - 0.25);
+            updateLightboxZoom();
+        });
+    }
+    const lightboxImage = document.getElementById('lightboxImage');
+    if (lightboxImage) {
+        lightboxImage.addEventListener('click', () => {
+            lightboxZoomLevel = lightboxZoomLevel > 1 ? 1 : 2;
+            updateLightboxZoom();
+        });
+    }
+    const lightboxLikeBtn = document.getElementById('lightboxLikeBtn');
+    if (lightboxLikeBtn) {
+        lightboxLikeBtn.addEventListener('click', toggleLightboxLike);
+    }
+    const lightboxCommentForm = document.getElementById('lightboxCommentForm');
+    if (lightboxCommentForm) {
+        lightboxCommentForm.addEventListener('submit', handleAddLightboxComment);
+    }
 
     // Owner Panel Event Handlers
     const ownerBtn = document.getElementById('ownerPanelBtn');
@@ -157,11 +306,13 @@ function setupEventListeners() {
 function syncProfiles() {
     if (useFirebase) {
         db.collection('profiles').onSnapshot((snapshot) => {
+            if (snapshot.empty) {
+                seedDefaultProfiles();
+                return;
+            }
+            customProfiles = {};
             snapshot.forEach(doc => {
-                const role = doc.id;
-                if (customProfiles[role]) {
-                    customProfiles[role] = doc.data();
-                }
+                customProfiles[doc.id] = doc.data();
             });
             updateProfileUI();
             updateOnlineIndicators();
@@ -171,6 +322,8 @@ function syncProfiles() {
         const savedCustom = localStorage.getItem('family_sync_custom_profiles');
         if (savedCustom) {
             customProfiles = JSON.parse(savedCustom);
+        } else {
+            localStorage.setItem('family_sync_custom_profiles', JSON.stringify(customProfiles));
         }
         updateProfileUI();
         updateOnlineIndicators();
@@ -257,13 +410,33 @@ function renderTypingStatus(users) {
 
 // Render/Update all names and avatars in UI
 function updateProfileUI() {
+    const listContainer = document.getElementById('profileListContainer');
+    if (listContainer) {
+        let listHtml = '';
+        for (const [role, data] of Object.entries(customProfiles)) {
+            listHtml += `
+                <div class="profile-card" data-member="${escapeHtml(data.member)}" data-role="${escapeHtml(role)}" data-avatar="${escapeHtml(data.avatar)}">
+                    <img src="${escapeHtml(data.avatar)}" alt="${escapeHtml(data.member)}" class="avatar-large profile-img-${getShortKey(role)}">
+                    <div class="profile-name name-${getShortKey(role)}">${escapeHtml(data.member)}</div>
+                    <div class="profile-role">${escapeHtml(role)}</div>
+                </div>
+            `;
+        }
+        listContainer.innerHTML = listHtml;
+    }
+
+    const assigneeSelect = document.getElementById('taskAssignee');
+    if (assigneeSelect) {
+        assigneeSelect.innerHTML = '<option value="" disabled selected>Select family member</option>';
+        for (const [role, data] of Object.entries(customProfiles)) {
+            assigneeSelect.innerHTML += `
+                <option value="${escapeHtml(data.member)}">${escapeHtml(role)} (${escapeHtml(data.member)})</option>
+            `;
+        }
+    }
+
     for (const [role, data] of Object.entries(customProfiles)) {
         const key = getShortKey(role);
-        const card = document.querySelector(`.profile-card[data-role="${role}"]`);
-        if (card) {
-            card.dataset.member = data.member;
-            card.dataset.avatar = data.avatar;
-        }
         
         const img = document.querySelector(`.profile-img-${key}`);
         if (img) img.src = data.avatar;
@@ -277,13 +450,8 @@ function updateProfileUI() {
             const colImg = columns.querySelector('.column-header img');
             if (colImg) colImg.src = data.avatar;
         }
-
-        const selectOption = document.querySelector(`#taskAssignee option[value="${role}"], #taskAssignee option[value="${data.member}"]`);
-        if (selectOption) {
-            selectOption.value = data.member;
-            selectOption.textContent = `${role} (${data.member})`;
-        }
     }
+    updateChatSidebar();
 }
 
 function getShortKey(role) {
@@ -331,6 +499,187 @@ function selectProfile(role) {
 function showProfileSelector() {
     document.getElementById('profileOverlay').classList.add('active');
     document.getElementById('appContainer').classList.remove('loaded');
+}
+
+// PIN Hashing and Handling
+async function hashPin(pin) {
+    const encoder = new TextEncoder();
+    const data = encoder.encode(pin);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+function handleProfileCardClick(role) {
+    pendingProfileRole = role;
+    const profile = customProfiles[role];
+    if (!profile) return;
+
+    if (!profile.pinHash) {
+        document.getElementById('pinSetupTitle').textContent = `Set PIN for ${profile.member}`;
+        document.getElementById('profilePinSetupInput').value = '';
+        document.getElementById('profilePinConfirmInput').value = '';
+        document.getElementById('profilePinSetupOverlay').classList.add('active');
+    } else {
+        document.getElementById('pinEntryTitle').textContent = `Enter PIN for ${profile.member}`;
+        document.getElementById('profilePinInput').value = '';
+        document.getElementById('profilePinEntryOverlay').classList.add('active');
+    }
+}
+
+async function handlePinEntrySubmit(e) {
+    e.preventDefault();
+    const pinVal = document.getElementById('profilePinInput').value;
+    if (!pinVal || pinVal.length !== 4) return alert('Please enter a 4-digit PIN');
+
+    const enteredHash = await hashPin(pinVal);
+    const storedHash = customProfiles[pendingProfileRole].pinHash;
+
+    if (enteredHash === storedHash) {
+        document.getElementById('profilePinEntryOverlay').classList.remove('active');
+        document.getElementById('profilePinInput').value = '';
+        selectProfile(pendingProfileRole);
+    } else {
+        alert('Incorrect PIN! Please try again.');
+        document.getElementById('profilePinInput').value = '';
+    }
+}
+
+async function handlePinSetupSubmit(e) {
+    e.preventDefault();
+    const pinVal = document.getElementById('profilePinSetupInput').value;
+    const confirmVal = document.getElementById('profilePinConfirmInput').value;
+
+    if (!pinVal || pinVal.length !== 4) return alert('Please enter a 4-digit PIN');
+    if (pinVal !== confirmVal) return alert('PINs do not match!');
+
+    const hash = await hashPin(pinVal);
+    
+    if (useFirebase) {
+        db.collection('profiles').doc(pendingProfileRole).update({
+            pinHash: hash
+        }).then(() => {
+            document.getElementById('profilePinSetupOverlay').classList.remove('active');
+            selectProfile(pendingProfileRole);
+        }).catch(err => {
+            console.error("Error setting PIN:", err);
+            alert("Failed to save PIN in cloud. Check your connection.");
+        });
+    } else {
+        customProfiles[pendingProfileRole].pinHash = hash;
+        localStorage.setItem('family_sync_custom_profiles', JSON.stringify(customProfiles));
+        document.getElementById('profilePinSetupOverlay').classList.remove('active');
+        selectProfile(pendingProfileRole);
+    }
+}
+
+function seedDefaultProfiles() {
+    const defaults = {
+        "Dad": { member: "Ajay Yadav", avatar: "https://api.dicebear.com/7.x/bottts/svg?seed=Ajay", lastActive: 0, locationPermissionGranted: false },
+        "Mom": { member: "Poonam Yadav", avatar: "https://api.dicebear.com/7.x/bottts/svg?seed=Poonam", lastActive: 0, locationPermissionGranted: false },
+        "Child 1": { member: "Naman", avatar: "https://api.dicebear.com/7.x/bottts/svg?seed=Naman", lastActive: 0, locationPermissionGranted: false },
+        "Child 2": { member: "Muskan", avatar: "https://api.dicebear.com/7.x/bottts/svg?seed=Muskan", lastActive: 0, locationPermissionGranted: false }
+    };
+    
+    const batch = db.batch();
+    for (const [role, data] of Object.entries(defaults)) {
+        const ref = db.collection('profiles').doc(role);
+        batch.set(ref, data);
+    }
+    batch.commit().then(() => {
+        console.log("Default profiles seeded to Firestore.");
+    }).catch(err => {
+        console.error("Error seeding default profiles:", err);
+    });
+}
+
+function openManageFamilyModal() {
+    renderManageFamilyList();
+    document.getElementById('manageFamilyOverlay').classList.add('active');
+}
+
+function renderManageFamilyList() {
+    const list = document.getElementById('manageFamilyList');
+    if (!list) return;
+    
+    list.innerHTML = '';
+    for (const [role, data] of Object.entries(customProfiles)) {
+        const div = document.createElement('div');
+        div.style.cssText = "display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; background: rgba(255,255,255,0.02); border: 1px solid var(--border-color); border-radius: 10px; gap: 10px;";
+        div.innerHTML = `
+            <div style="display: flex; align-items: center; gap: 8px;">
+                <img src="${escapeHtml(data.avatar)}" style="width: 28px; height: 28px; border-radius: 50%;">
+                <span style="font-size: 13px; font-weight: 600; color: var(--text-color);">${escapeHtml(data.member)} (${escapeHtml(role)})</span>
+            </div>
+            <button class="btn-delete-task" onclick="deleteFamilyMember('${role}')" title="Delete Member" style="padding: 4px 8px; color: var(--accent-color);"><i class="fa-solid fa-user-minus"></i></button>
+        `;
+        list.appendChild(div);
+    }
+}
+
+window.deleteFamilyMember = function(role) {
+    if (Object.keys(customProfiles).length <= 1) {
+        return alert("You must have at least one family member profile!");
+    }
+    
+    if (confirm(`Are you sure you want to delete the profile "${customProfiles[role].member} (${role})"?`)) {
+        if (currentProfile && currentProfile.role === role) {
+            localStorage.removeItem('family_sync_profile_role');
+            currentProfile = null;
+        }
+        
+        if (useFirebase) {
+            db.collection('profiles').doc(role).delete()
+              .then(() => {
+                  renderManageFamilyList();
+                  if (!currentProfile) showProfileSelector();
+              })
+              .catch(err => console.error("Error deleting member:", err));
+        } else {
+            delete customProfiles[role];
+            localStorage.setItem('family_sync_custom_profiles', JSON.stringify(customProfiles));
+            updateProfileUI();
+            renderManageFamilyList();
+            if (!currentProfile) showProfileSelector();
+        }
+    }
+};
+
+function handleAddMember(e) {
+    e.preventDefault();
+    const name = document.getElementById('newMemberName').value.trim();
+    const role = document.getElementById('newMemberRole').value.trim();
+    let seed = document.getElementById('newMemberAvatar').value.trim();
+    
+    if (!name || !role) return;
+    if (customProfiles[role]) {
+        return alert("A family member with this Role/Column name already exists!");
+    }
+    
+    if (!seed) seed = name;
+    const avatar = `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(seed)}`;
+    
+    const newMember = {
+        member: name,
+        avatar: avatar,
+        lastActive: 0,
+        locationPermissionGranted: false
+    };
+    
+    if (useFirebase) {
+        db.collection('profiles').doc(role).set(newMember)
+          .then(() => {
+              document.getElementById('addMemberForm').reset();
+              renderManageFamilyList();
+          })
+          .catch(err => console.error("Error adding member:", err));
+    } else {
+        customProfiles[role] = newMember;
+        localStorage.setItem('family_sync_custom_profiles', JSON.stringify(customProfiles));
+        updateProfileUI();
+        document.getElementById('addMemberForm').reset();
+        renderManageFamilyList();
+    }
 }
 
 // Edit Profile Modal Handling
@@ -409,7 +758,7 @@ function handleFileSelected(e) {
     reader.readAsDataURL(file);
 }
 
-function saveProfileChanges() {
+async function saveProfileChanges() {
     if (!currentProfile) return;
     const role = currentProfile.role;
     const newName = document.getElementById('editDisplayName').value.trim();
@@ -430,15 +779,39 @@ function saveProfileChanges() {
         lastActive: Date.now()
     };
 
+    const newPin = document.getElementById('editProfilePin').value.trim();
+    const confirmPin = document.getElementById('editProfilePinConfirm').value.trim();
+
+    if (newPin || confirmPin) {
+        if (newPin.length !== 4 || !/^[0-9]{4}$/.test(newPin)) {
+            return alert('New PIN must be exactly 4 digits!');
+        }
+        if (newPin !== confirmPin) {
+            return alert('New PIN and confirmation do not match!');
+        }
+        const hash = await hashPin(newPin);
+        updatedData.pinHash = hash;
+    }
+
     if (useFirebase) {
-        db.collection('profiles').doc(role).set(updatedData)
+        db.collection('profiles').doc(role).update(updatedData)
           .then(() => {
+              document.getElementById('editProfilePin').value = '';
+              document.getElementById('editProfilePinConfirm').value = '';
               closeEditProfileModal();
           })
-          .catch(err => console.error("Error updating profile:", err));
+          .catch(err => {
+              console.error("Error updating profile:", err);
+              alert("Failed to save profile. Check connection.");
+          });
     } else {
-        customProfiles[role] = updatedData;
+        customProfiles[role] = {
+            ...customProfiles[role],
+            ...updatedData
+        };
         localStorage.setItem('family_sync_custom_profiles', JSON.stringify(customProfiles));
+        document.getElementById('editProfilePin').value = '';
+        document.getElementById('editProfilePinConfirm').value = '';
         updateProfileUI();
         selectProfile(role);
         closeEditProfileModal();
@@ -464,7 +837,7 @@ function loadTasks() {
                            if (task.assignee === currentProfile.member && task.assignedBy !== currentProfile.member) {
                                showLocalNotification("New Task Assigned!", {
                                    body: `${task.assignedBy} assigned you: "${task.title}"`,
-                                   icon: "icon.png",
+                                   icon: "icon.jpg",
                                    tag: "task-new-" + change.doc.id
                                });
                            }
@@ -473,7 +846,7 @@ function loadTasks() {
                            if (task.completed && task.completedAt > appStartTime && task.assignedBy === currentProfile.member && task.completedBy !== currentProfile.member) {
                                showLocalNotification("Task Completed!", {
                                    body: `${task.completedBy} completed your task: "${task.title}"`,
-                                   icon: "icon.png",
+                                   icon: "icon.jpg",
                                    tag: "task-done-" + change.doc.id
                                });
                            }
@@ -481,14 +854,17 @@ function loadTasks() {
                   }
               });
               
+              loadedTasks = tasks;
               cleanupOldCompletedTasks(tasks);
               renderTasks(tasks);
           }, (err) => {
               console.error("Firestore sync error:", err);
+              loadedTasks = localTasks;
               cleanupOldCompletedTasks(localTasks);
               renderTasks(localTasks);
           });
     } else {
+        loadedTasks = localTasks;
         cleanupOldCompletedTasks(localTasks);
         renderTasks(localTasks);
     }
@@ -509,11 +885,26 @@ function cleanupOldCompletedTasks(tasks) {
 }
 
 function renderTasks(tasks) {
+    const grid = document.getElementById('dynamicTasksGrid');
+    if (!grid) return;
+
+    grid.innerHTML = '';
     for (const [role, data] of Object.entries(customProfiles)) {
-        const listEl = document.getElementById(`list-${getShortKey(role)}`);
-        if (listEl) listEl.innerHTML = '';
-        const countEl = document.getElementById(`count-${getShortKey(role)}`);
-        if (countEl) countEl.textContent = '0';
+        const shortKey = getShortKey(role);
+        grid.innerHTML += `
+            <div class="task-column" data-role="${escapeHtml(role)}">
+                <div class="column-header">
+                    <div class="column-user-info">
+                        <img src="${escapeHtml(data.avatar)}" alt="${escapeHtml(data.member)}" style="width: 24px; height: 24px; border-radius: 50%;">
+                        <span class="column-title">${escapeHtml(data.member)} (${escapeHtml(role)})</span>
+                    </div>
+                    <span class="column-count" id="count-${shortKey}">0</span>
+                </div>
+                <div class="task-list" id="list-${shortKey}">
+                    <!-- Tasks list -->
+                </div>
+            </div>
+        `;
     }
 
     const completedGrid = document.getElementById('completedTasksGrid');
@@ -526,12 +917,29 @@ function renderTasks(tasks) {
     
     let completedListHtml = '';
 
-    tasks.sort((a, b) => {
-        const priorityOrder = { 'high-priority': 3, 'normal-priority': 2, 'low-priority': 1 };
-        return (priorityOrder[b.priority] || 2) - (priorityOrder[a.priority] || 2);
+    const filterCat = document.getElementById('filterCategory') ? document.getElementById('filterCategory').value : 'All';
+    const sortBy = document.getElementById('sortTasks') ? document.getElementById('sortTasks').value : 'priority';
+
+    let filteredTasks = tasks;
+    if (filterCat !== 'All') {
+        filteredTasks = tasks.filter(t => t.category === filterCat);
+    }
+
+    filteredTasks.sort((a, b) => {
+        if (sortBy === 'priority') {
+            const priorityOrder = { 'high-priority': 3, 'normal-priority': 2, 'low-priority': 1 };
+            return (priorityOrder[b.priority] || 2) - (priorityOrder[a.priority] || 2);
+        } else if (sortBy === 'dueDate') {
+            const dateA = a.dueDate ? new Date(a.dueDate).getTime() : Infinity;
+            const dateB = b.dueDate ? new Date(b.dueDate).getTime() : Infinity;
+            return dateA - dateB;
+        } else if (sortBy === 'dateCreated') {
+            return (b.timestamp || 0) - (a.timestamp || 0);
+        }
+        return 0;
     });
 
-    tasks.forEach(task => {
+    filteredTasks.forEach(task => {
         if (!task.completed) {
             let shortKey = null;
             for (const [role, data] of Object.entries(customProfiles)) {
@@ -561,7 +969,7 @@ function renderTasks(tasks) {
     } else {
         completedGrid.innerHTML = `
             <div class="completed-card" style="grid-column: 1 / -1; justify-content: center; border-left: none; border: 1px dashed rgba(255,255,255,0.05); background: transparent;">
-                <span style="color: var(--text-secondary); font-size: 13px;">No tasks completed yet today. Let's get things done!</span>
+                <span style="color: var(--text-secondary); font-size: 13px;">No tasks match the filters or completed today.</span>
             </div>
         `;
     }
@@ -576,6 +984,35 @@ function createTaskCard(task) {
         ? `<button class="btn-complete" onclick="markTaskDone('${task.id}')">Done</button>` 
         : `<span style="font-size: 11px; color: var(--text-secondary); font-style: italic;">Assigned to ${escapeHtml(task.assignee)}</span>`;
 
+    const catIcons = { Chores: '🧹', Grocery: '🛒', Study: '📚', Finance: '💳', Other: '✨' };
+    const catText = task.category || 'Other';
+    const catIcon = catIcons[catText] || '✨';
+
+    let dueBadgeHtml = '';
+    if (task.dueDate) {
+        const today = new Date();
+        today.setHours(0,0,0,0);
+        const due = new Date(task.dueDate);
+        due.setHours(0,0,0,0);
+        
+        const isOverdue = due < today;
+        const isDueToday = due.getTime() === today.getTime();
+        
+        let badgeColor = 'rgba(255, 255, 255, 0.05)';
+        let textColor = 'var(--text-secondary)';
+        if (isOverdue) {
+            badgeColor = 'rgba(255, 59, 48, 0.15)';
+            textColor = 'var(--accent-color)';
+        } else if (isDueToday) {
+            badgeColor = 'rgba(255, 159, 10, 0.15)';
+            textColor = '#ff9f0a';
+        }
+        
+        dueBadgeHtml = `<span style="font-size: 10px; font-weight:600; padding: 2px 8px; border-radius: 4px; background: ${badgeColor}; color: ${textColor}; display: inline-flex; align-items: center; gap: 4px;">
+            <i class="fa-regular fa-calendar"></i> Due: ${task.dueDate}
+        </span>`;
+    }
+
     const div = document.createElement('div');
     div.className = `task-card ${task.priority}`;
     div.innerHTML = `
@@ -584,7 +1021,15 @@ function createTaskCard(task) {
             ${deleteBtnHtml}
         </div>
         ${task.desc ? `<div class="task-desc">${escapeHtml(task.desc)}</div>` : ''}
-        <div class="task-footer">
+        
+        <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 5px;">
+            <span style="font-size: 10px; font-weight:600; padding: 2px 8px; border-radius: 4px; background: rgba(255, 255, 255, 0.05); color: var(--text-color);">
+                ${catIcon} ${catText}
+            </span>
+            ${dueBadgeHtml}
+        </div>
+
+        <div class="task-footer" style="margin-top: 10px;">
             <div class="assigned-by">By: ${escapeHtml(task.assignedBy)}</div>
             ${doneBtnHtml}
         </div>
@@ -621,6 +1066,8 @@ function handleAddTask(e) {
     const title = document.getElementById('taskTitle').value.trim();
     const desc = document.getElementById('taskDesc').value.trim();
     const priority = document.getElementById('taskPriority').value;
+    const category = document.getElementById('taskCategory').value;
+    const dueDate = document.getElementById('taskDueDate').value;
 
     if (!assignee || !title) return;
 
@@ -629,6 +1076,8 @@ function handleAddTask(e) {
         desc,
         assignee,
         priority,
+        category,
+        dueDate,
         completed: false,
         assignedBy: currentProfile.member,
         timestamp: Date.now()
@@ -712,36 +1161,154 @@ window.deleteTask = function(taskId) {
 };
 
 // Chat Messaging
+function updateChatSidebar() {
+    const dmList = document.getElementById('dmList');
+    if (!dmList) return;
+    
+    dmList.innerHTML = '';
+    for (const [role, data] of Object.entries(customProfiles)) {
+        if (currentProfile && currentProfile.role === role) continue;
+        
+        const dmRoomId = `dm_${getDmRoomSuffix(currentProfile.role, role)}`;
+        const isSelected = activeChatRoom === dmRoomId;
+        
+        const div = document.createElement('div');
+        div.className = `chat-room-item ${isSelected ? 'active' : ''}`;
+        div.dataset.roomId = dmRoomId;
+        div.dataset.roomName = data.member;
+        
+        const now = Date.now();
+        const isOnline = (now - (data.lastActive || 0)) < 70000;
+        const statusClass = isOnline ? 'online' : 'offline';
+
+        div.style.cssText = "padding: 10px 15px; cursor: pointer; display: flex; align-items: center; gap: 10px; font-size: 13px; transition: var(--transition); border-left: " + (isSelected ? "3px solid var(--primary-color)" : "none") + "; background: " + (isSelected ? "rgba(255, 255, 255, 0.02)" : "transparent") + ";";
+
+        div.innerHTML = `
+            <div style="position: relative; display: flex; align-items: center;">
+                <img src="${escapeHtml(data.avatar)}" style="width: 24px; height: 24px; border-radius: 50%;">
+                <span class="status-dot ${statusClass}" style="position: absolute; bottom: -2px; right: -2px; border: 2px solid #1c1c1e; width: 8px; height: 8px;"></span>
+            </div>
+            <span style="font-weight: 500; color: var(--text-color);">${escapeHtml(data.member)}</span>
+        `;
+        
+        dmList.appendChild(div);
+    }
+}
+
+function getDmRoomSuffix(roleA, roleB) {
+    return [roleA || '', roleB || ''].sort().join('_').replace(/ /g, '_');
+}
+
+function switchChatRoom(roomId, roomName) {
+    activeChatRoom = roomId;
+    document.getElementById('activeChatRoomName').textContent = roomName;
+    
+    if (chatListener) {
+        chatListener();
+        chatListener = null;
+    }
+    
+    // Clear list view first to show it's loading
+    document.getElementById('chatMessages').innerHTML = '';
+    loadMessages();
+}
+
+function handleChatImageUpload(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (!currentProfile) return showProfileSelector();
+    
+    const reader = new FileReader();
+    reader.onload = function(event) {
+        const img = new Image();
+        img.onload = function() {
+            const canvas = document.createElement('canvas');
+            const MAX_WIDTH = 500;
+            let width = img.width;
+            let height = img.height;
+            
+            if (width > MAX_WIDTH) {
+                height *= MAX_WIDTH / width;
+                width = MAX_WIDTH;
+            }
+            
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, width, height);
+            
+            const base64 = canvas.toDataURL('image/jpeg', 0.7);
+            sendChatMessage(null, base64);
+            document.getElementById('chatAttachInput').value = '';
+        };
+        img.src = event.target.result;
+    };
+    reader.readAsDataURL(file);
+}
+
+function sendChatMessage(text, imageData) {
+    if (!currentProfile) return showProfileSelector();
+    const activeData = customProfiles[currentProfile.role];
+    
+    const newMsg = {
+        sender: activeData.member,
+        role: currentProfile.role,
+        avatar: activeData.avatar,
+        roomId: activeChatRoom,
+        timestamp: Date.now()
+    };
+    
+    if (text) newMsg.text = text;
+    if (imageData) newMsg.image = imageData;
+    
+    if (useFirebase) {
+        db.collection('chat').add(newMsg)
+          .catch(err => console.error("Error sending message:", err));
+    } else {
+        const id = 'msg_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
+        newMsg.id = id;
+        localMessages.push(newMsg);
+        localStorage.setItem('family_sync_messages', JSON.stringify(localMessages));
+        loadMessages();
+    }
+}
+
+// Chat Messaging
 function loadMessages() {
     if (useFirebase) {
-        db.collection('chat').orderBy('timestamp', 'asc')
+        chatListener = db.collection('chat')
+          .where('roomId', '==', activeChatRoom)
+          .orderBy('timestamp', 'asc')
           .onSnapshot((snapshot) => {
               const messages = [];
               snapshot.forEach(doc => {
                   messages.push({ id: doc.id, ...doc.data() });
               });
               
-              // Handle new message notifications
               snapshot.docChanges().forEach(change => {
                   if (change.type === "added") {
                       const msg = change.doc.data();
-                       if (msg.timestamp > appStartTime && currentProfile && msg.sender !== currentProfile.member) {
-                           showLocalNotification(`New Message from ${msg.sender}`, {
-                               body: msg.text,
-                               icon: msg.avatar,
-                               tag: "chat-msg-" + change.doc.id
-                           });
-                       }
+                      if (msg.timestamp > appStartTime && currentProfile && msg.sender !== currentProfile.member) {
+                          if (msg.roomId !== activeChatRoom) {
+                              showLocalNotification(`New Message from ${msg.sender}`, {
+                                  body: msg.text || "Sent a photo",
+                                  icon: msg.avatar,
+                                  tag: "chat-msg-" + change.doc.id
+                              });
+                          }
+                      }
                   }
               });
               
               renderMessages(messages);
           }, (err) => {
               console.error("Firestore chat error:", err);
-              renderMessages(localMessages);
+              const filtered = localMessages.filter(m => (m.roomId || 'main') === activeChatRoom);
+              renderMessages(filtered);
           });
     } else {
-        renderMessages(localMessages);
+        const filtered = localMessages.filter(m => (m.roomId || 'main') === activeChatRoom);
+        renderMessages(filtered);
     }
 }
 
@@ -749,7 +1316,6 @@ function renderMessages(messages) {
     const container = document.getElementById('chatMessages');
     if (!container) return;
 
-    // Check if the user is already scrolled to the bottom (within a threshold)
     const isAtBottom = container.scrollTop >= (container.scrollHeight - container.clientHeight - 120);
 
     container.innerHTML = '';
@@ -765,14 +1331,44 @@ function renderMessages(messages) {
             ? `<button onclick="deleteMessage('${msg.id}')" title="Delete Message" style="background:none; border:none; color:inherit; opacity:0.5; cursor:pointer; margin-left:8px; font-size:11px; transition:opacity 0.2s;"><i class="fa-solid fa-trash-can"></i></button>`
             : '';
 
+        const smileBtnHtml = `<button onclick="toggleReactionPicker(event, '${msg.id}')" title="React" style="background:none; border:none; color:inherit; opacity:0.5; cursor:pointer; margin-left:6px; font-size:11px; transition:opacity 0.2s;"><i class="fa-regular fa-face-smile"></i></button>`;
+
+        let reactionsHtml = '';
+        if (msg.reactions && Object.keys(msg.reactions).length > 0) {
+            const counts = {};
+            for (const [member, emoji] of Object.entries(msg.reactions)) {
+                counts[emoji] = (counts[emoji] || 0) + 1;
+            }
+            reactionsHtml = `<div class="msg-reactions" style="display: flex; gap: 4px; margin-top: 6px; flex-wrap: wrap;">`;
+            for (const [emoji, count] of Object.entries(counts)) {
+                reactionsHtml += `
+                    <span class="reaction-badge" onclick="toggleReaction('${msg.id}', '${emoji}')" style="display: inline-flex; align-items: center; gap: 4px; font-size: 10px; padding: 2px 6px; border-radius: 980px; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.04); cursor: pointer; user-select: none;">
+                        <span>${emoji}</span> <span style="color: var(--text-secondary); font-size: 9px;">${count}</span>
+                    </span>
+                `;
+            }
+            reactionsHtml += `</div>`;
+        }
+
+        let bodyContent = '';
+        if (msg.image) {
+            bodyContent = `<img src="${msg.image}" style="max-width: 100%; border-radius: 12px; margin-top: 4px; display: block; border: 1px solid rgba(255,255,255,0.08);">`;
+        } else {
+            bodyContent = `<span class="msg-text">${escapeHtml(msg.text)}</span>`;
+        }
+
         msgDiv.innerHTML = `
             <img src="${msg.avatar}" alt="${msg.sender}" class="avatar" style="align-self: flex-end;">
             <div class="msg-bubble">
                 <div style="display:flex; justify-content:space-between; align-items:center; gap:10px;">
                     <span class="msg-sender">${escapeHtml(msg.sender)} (${escapeHtml(msg.role)})</span>
-                    ${deleteMsgHtml}
+                    <div style="display:flex; align-items:center;">
+                        ${deleteMsgHtml}
+                        ${smileBtnHtml}
+                    </div>
                 </div>
-                <span class="msg-text">${escapeHtml(msg.text)}</span>
+                ${bodyContent}
+                ${reactionsHtml}
                 <span class="msg-time">${timeString}</span>
             </div>
         `;
@@ -794,36 +1390,13 @@ function renderMessages(messages) {
 
 function handleSendMessage(e) {
     e.preventDefault();
-    if (!currentProfile) return showProfileSelector();
-
     const input = document.getElementById('chatInput');
     const text = input.value.trim();
     if (!text) return;
-
-    const activeData = customProfiles[currentProfile.role];
-    const newMsg = {
-        text,
-        sender: activeData.member,
-        role: currentProfile.role,
-        avatar: activeData.avatar,
-        timestamp: Date.now()
-    };
-
-    if (useFirebase) {
-        db.collection('chat').add(newMsg)
-          .then(() => {
-              input.value = '';
-              setTypingState(false);
-          })
-          .catch(err => console.error("Error sending message:", err));
-    } else {
-        const id = 'msg_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
-        newMsg.id = id;
-        localMessages.push(newMsg);
-        localStorage.setItem('family_sync_messages', JSON.stringify(localMessages));
-        input.value = '';
-        loadMessages();
-    }
+    
+    sendChatMessage(text, null);
+    input.value = '';
+    setTypingState(false);
 }
 
 // Delete Chat Message
@@ -933,12 +1506,44 @@ function startLocationSharing() {
                 if (useFirebase) {
                     db.collection('profiles').doc(currentProfile.role).update(coords)
                       .catch(err => console.error("Error updating location: ", err));
+
+                    const historyEntry = {
+                        latitude: position.coords.latitude,
+                        longitude: position.coords.longitude,
+                        accuracy: position.coords.accuracy,
+                        timestamp: coords.locationTimestamp
+                    };
+                    db.collection('profiles').doc(currentProfile.role).collection('history').doc(String(coords.locationTimestamp)).set(historyEntry)
+                      .catch(err => console.error("Error saving location history entry:", err));
+
+                    // Prune history older than 12 hours (12 * 3600 * 1000 = 43200000 ms)
+                    const cutoff = Date.now() - 43200000;
+                    db.collection('profiles').doc(currentProfile.role).collection('history')
+                      .where('timestamp', '<', cutoff).get().then(snapshot => {
+                          const batch = db.batch();
+                          snapshot.forEach(doc => {
+                              batch.delete(doc.ref);
+                          });
+                          batch.commit().catch(err => console.error("Error pruning old history entries:", err));
+                      }).catch(err => console.error("Error querying old history entries:", err));
                 } else {
                     customProfiles[currentProfile.role] = {
                         ...customProfiles[currentProfile.role],
                         ...coords
                     };
                     localStorage.setItem('family_sync_custom_profiles', JSON.stringify(customProfiles));
+
+                    const historyEntry = {
+                        latitude: position.coords.latitude,
+                        longitude: position.coords.longitude,
+                        accuracy: position.coords.accuracy,
+                        timestamp: coords.locationTimestamp
+                    };
+                    let localHistory = JSON.parse(localStorage.getItem('family_sync_history_' + currentProfile.role)) || [];
+                    localHistory.push(historyEntry);
+                    const cutoff = Date.now() - 43200000;
+                    localHistory = localHistory.filter(h => h.timestamp >= cutoff);
+                    localStorage.setItem('family_sync_history_' + currentProfile.role, JSON.stringify(localHistory));
                 }
             },
             (error) => {
@@ -1012,6 +1617,20 @@ function openOwnerPanel() {
 
 function closeOwnerPanel() {
     document.getElementById('ownerPanelOverlay').classList.remove('active');
+    if (ownerMap) {
+        if (mapMarker) {
+            ownerMap.removeLayer(mapMarker);
+            mapMarker = null;
+        }
+        if (historyPolyline) {
+            ownerMap.removeLayer(historyPolyline);
+            historyPolyline = null;
+        }
+        if (historyMarkers && historyMarkers.length > 0) {
+            historyMarkers.forEach(m => ownerMap.removeLayer(m));
+            historyMarkers = [];
+        }
+    }
 }
 
 function handleOwnerAuth(e) {
@@ -1128,6 +1747,15 @@ function plotMemberOnMap(role, data) {
         ownerMap.removeLayer(mapMarker);
     }
     
+    if (historyPolyline) {
+        ownerMap.removeLayer(historyPolyline);
+        historyPolyline = null;
+    }
+    if (historyMarkers && historyMarkers.length > 0) {
+        historyMarkers.forEach(m => ownerMap.removeLayer(m));
+        historyMarkers = [];
+    }
+    
     const customIcon = L.divIcon({
         className: 'map-avatar-marker',
         html: `
@@ -1142,6 +1770,56 @@ function plotMemberOnMap(role, data) {
     mapMarker = L.marker([lat, lng], { icon: customIcon }).addTo(ownerMap)
         .bindPopup(`<strong style="color: #000;">${escapeHtml(data.member)}</strong><br><span style="font-size: 11px; color: #666;">Accuracy: ±${Math.round(data.accuracy || 0)}m</span>`)
         .openPopup();
+
+    // Fetch and plot 12-hour history trail (12 * 3600 * 1000 = 43200000 ms)
+    const cutoff = Date.now() - 43200000;
+    if (useFirebase) {
+        db.collection('profiles').doc(role).collection('history')
+          .where('timestamp', '>=', cutoff)
+          .orderBy('timestamp', 'asc')
+          .get()
+          .then(snapshot => {
+              const trail = [];
+              snapshot.forEach(doc => {
+                  trail.push(doc.data());
+              });
+              drawHistoryTrail(trail);
+          })
+          .catch(err => console.error("Error loading location history:", err));
+    } else {
+        let trail = JSON.parse(localStorage.getItem('family_sync_history_' + role)) || [];
+        trail = trail.filter(h => h.timestamp >= cutoff);
+        trail.sort((a, b) => a.timestamp - b.timestamp);
+        drawHistoryTrail(trail);
+    }
+}
+
+function drawHistoryTrail(trail) {
+    if (!ownerMap || trail.length === 0) return;
+
+    const latlngs = trail.map(h => [h.latitude, h.longitude]);
+
+    historyPolyline = L.polyline(latlngs, {
+        color: 'var(--primary-color)',
+        dashArray: '5, 10',
+        weight: 3,
+        opacity: 0.8
+    }).addTo(ownerMap);
+
+    trail.forEach((h, index) => {
+        const marker = L.circleMarker([h.latitude, h.longitude], {
+            radius: 5,
+            color: 'var(--primary-color)',
+            fillColor: '#fff',
+            weight: 2,
+            opacity: 0.7,
+            fillOpacity: 0.5
+        }).addTo(ownerMap);
+
+        const timeString = new Date(h.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        marker.bindPopup(`<strong>History Point ${index + 1}</strong><br>Time: ${timeString}<br>Accuracy: ±${Math.round(h.accuracy || 0)}m`);
+        historyMarkers.push(marker);
+    });
 }
 
 // Gallery System & Real-Time Photo sync
@@ -1153,12 +1831,19 @@ function loadGallery() {
               snapshot.forEach(doc => {
                   photos.push({ id: doc.id, ...doc.data() });
               });
+              loadedGalleryPhotos = photos;
+              
+              if (activePhotoIndex !== -1) {
+                  renderLightboxPhoto();
+              }
               renderGallery(photos);
           }, (err) => {
               console.error("Firestore gallery error:", err);
+              loadedGalleryPhotos = localGallery;
               renderGallery(localGallery);
           });
     } else {
+        loadedGalleryPhotos = localGallery;
         renderGallery(localGallery);
     }
 }
@@ -1186,6 +1871,11 @@ function renderGallery(photos) {
             
         const card = document.createElement('div');
         card.className = 'gallery-card';
+        card.style.cursor = 'pointer';
+        card.addEventListener('click', (e) => {
+            if (e.target.closest('.btn-delete-photo')) return;
+            openLightbox(photo.id);
+        });
         
         const timeString = photo.timestamp ? new Date(photo.timestamp).toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
         
@@ -1227,7 +1917,7 @@ function handleAddPhoto(e) {
         const img = new Image();
         img.onload = function() {
             const canvas = document.createElement('canvas');
-            const MAX_WIDTH = 600; // Downscale to keep document <100KB inside Firestore
+            const MAX_WIDTH = 600;
             let width = img.width;
             let height = img.height;
             
@@ -1250,6 +1940,8 @@ function handleAddPhoto(e) {
                 uploadedBy: currentProfile.member,
                 role: currentProfile.role,
                 avatar: activeData.avatar,
+                likes: {},
+                comments: [],
                 timestamp: Date.now()
             };
             
@@ -1276,15 +1968,12 @@ function handleAddPhoto(e) {
             console.error("Error loading image inside FileReader.");
             alert("Failed to process the photo. Try choosing a different picture.");
         };
-        
         img.src = event.target.result;
     };
-    
     reader.onerror = function() {
         console.error("FileReader error occurred.");
         alert("Failed to read the photo file from your device.");
     };
-    
     reader.readAsDataURL(file);
 }
 
@@ -1315,6 +2004,164 @@ window.deletePhoto = function(photoId) {
         }
     }
 };
+
+function openLightbox(photoId) {
+    activePhotoIndex = loadedGalleryPhotos.findIndex(p => p.id === photoId);
+    if (activePhotoIndex === -1) return;
+    
+    lightboxZoomLevel = 1;
+    updateLightboxZoom();
+    
+    renderLightboxPhoto();
+    document.getElementById('galleryLightboxModal').classList.add('active');
+}
+
+function closeLightbox() {
+    document.getElementById('galleryLightboxModal').classList.remove('active');
+    activePhotoIndex = -1;
+}
+
+function showPrevPhoto() {
+    if (activePhotoIndex > 0) {
+        activePhotoIndex--;
+        lightboxZoomLevel = 1;
+        updateLightboxZoom();
+        renderLightboxPhoto();
+    }
+}
+
+function showNextPhoto() {
+    if (activePhotoIndex < loadedGalleryPhotos.length - 1) {
+        activePhotoIndex++;
+        lightboxZoomLevel = 1;
+        updateLightboxZoom();
+        renderLightboxPhoto();
+    }
+}
+
+function updateLightboxZoom() {
+    const img = document.getElementById('lightboxImage');
+    if (img) {
+        img.style.transform = `scale(${lightboxZoomLevel})`;
+        img.style.cursor = lightboxZoomLevel > 1 ? 'zoom-out' : 'zoom-in';
+    }
+}
+
+function renderLightboxPhoto() {
+    const photo = loadedGalleryPhotos[activePhotoIndex];
+    if (!photo) return;
+    
+    document.getElementById('lightboxImage').src = photo.image;
+    document.getElementById('lightboxUploaderAvatar').src = photo.avatar;
+    document.getElementById('lightboxUploaderName').textContent = `${photo.uploadedBy} (${photo.role || 'Member'})`;
+    document.getElementById('lightboxTime').textContent = photo.timestamp ? new Date(photo.timestamp).toLocaleString() : '';
+    document.getElementById('lightboxCaption').textContent = photo.caption || '';
+    
+    const likes = photo.likes || {};
+    const likeCount = Object.keys(likes).length;
+    document.getElementById('lightboxLikeCount').textContent = `${likeCount} ${likeCount === 1 ? 'like' : 'likes'}`;
+    
+    const likeBtn = document.getElementById('lightboxLikeBtn');
+    const hasLiked = currentProfile && likes[currentProfile.member] === true;
+    if (hasLiked) {
+        likeBtn.innerHTML = `<i class="fa-solid fa-heart"></i> Liked`;
+        likeBtn.style.background = 'var(--accent-color)';
+        likeBtn.style.color = '#fff';
+    } else {
+        likeBtn.innerHTML = `<i class="fa-regular fa-heart"></i> Like`;
+        likeBtn.style.background = 'rgba(255, 59, 48, 0.15)';
+        likeBtn.style.color = 'var(--accent-color)';
+    }
+    
+    const commentsList = document.getElementById('lightboxCommentsList');
+    commentsList.innerHTML = '';
+    const comments = photo.comments || [];
+    if (comments.length === 0) {
+        commentsList.innerHTML = `<div style="font-size: 12px; color: var(--text-secondary); font-style: italic; text-align: center; margin-top: 15px;">No comments yet. Be the first to comment!</div>`;
+    } else {
+        comments.forEach(c => {
+            const timeStr = c.timestamp ? new Date(c.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : '';
+            commentsList.innerHTML += `
+                <div style="display: flex; gap: 8px; background: rgba(255,255,255,0.02); border: 1px solid var(--border-color); padding: 8px 10px; border-radius: 8px;">
+                    <img src="${escapeHtml(c.avatar)}" style="width: 24px; height: 24px; border-radius: 50%; object-fit: cover;">
+                    <div style="flex-grow: 1;">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <span style="font-size: 11px; font-weight: 600; color: var(--text-color);">${escapeHtml(c.sender)}</span>
+                            <span style="font-size: 9px; color: var(--text-secondary);">${timeStr}</span>
+                        </div>
+                        <div style="font-size: 12px; color: var(--text-color); margin-top: 3px; word-break: break-all;">${escapeHtml(c.text)}</div>
+                    </div>
+                </div>
+            `;
+        });
+    }
+}
+
+function toggleLightboxLike() {
+    if (!currentProfile) return showProfileSelector();
+    const photo = loadedGalleryPhotos[activePhotoIndex];
+    if (!photo) return;
+    
+    const member = currentProfile.member;
+    const likes = photo.likes || {};
+    
+    if (likes[member]) {
+        delete likes[member];
+    } else {
+        likes[member] = true;
+    }
+    
+    if (useFirebase) {
+        db.collection('gallery').doc(photo.id).update({ likes })
+          .then(() => {
+              photo.likes = likes;
+              renderLightboxPhoto();
+          })
+          .catch(err => console.error("Error toggling like:", err));
+    } else {
+        photo.likes = likes;
+        localStorage.setItem('family_sync_gallery', JSON.stringify(loadedGalleryPhotos));
+        renderLightboxPhoto();
+        renderGallery(loadedGalleryPhotos);
+    }
+}
+
+function handleAddLightboxComment(e) {
+    e.preventDefault();
+    if (!currentProfile) return showProfileSelector();
+    const photo = loadedGalleryPhotos[activePhotoIndex];
+    if (!photo) return;
+    
+    const commentInput = document.getElementById('lightboxCommentInput');
+    const text = commentInput.value.trim();
+    if (!text) return;
+    
+    const newComment = {
+        sender: currentProfile.member,
+        avatar: currentProfile.avatar,
+        text: text,
+        timestamp: Date.now()
+    };
+    
+    const comments = photo.comments || [];
+    comments.push(newComment);
+    
+    if (useFirebase) {
+        db.collection('gallery').doc(photo.id).update({ comments })
+          .then(() => {
+              photo.comments = comments;
+              renderLightboxPhoto();
+              commentInput.value = '';
+          })
+          .catch(err => console.error("Error adding comment:", err));
+    } else {
+        photo.comments = comments;
+        localStorage.setItem('family_sync_gallery', JSON.stringify(loadedGalleryPhotos));
+        renderLightboxPhoto();
+        commentInput.value = '';
+        renderGallery(loadedGalleryPhotos);
+    }
+}
 
 // Onboarding Access Lock & Geolocation Prompt Handlers
 function checkAppUnlock() {
@@ -1401,3 +2248,75 @@ document.addEventListener('click', function promptOnFirstInteraction() {
         document.removeEventListener('click', promptOnFirstInteraction);
     }
 }, { once: true });
+
+window.toggleReactionPicker = function(e, msgId) {
+    e.stopPropagation();
+    
+    const oldPicker = document.getElementById('emojiPickerEl');
+    if (oldPicker) oldPicker.remove();
+
+    const emojis = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
+    const picker = document.createElement('div');
+    picker.id = 'emojiPickerEl';
+    picker.style.cssText = "position: absolute; display: flex; gap: 8px; background: #1c1c1e; border: 1px solid var(--border-color); padding: 8px 12px; border-radius: 980px; box-shadow: 0 8px 24px rgba(0,0,0,0.5); z-index: 100;";
+    
+    emojis.forEach(emoji => {
+        const btn = document.createElement('button');
+        btn.textContent = emoji;
+        btn.style.cssText = "background: none; border: none; font-size: 16px; cursor: pointer; transition: transform 0.2s;";
+        btn.onmouseover = () => btn.style.transform = "scale(1.3)";
+        btn.onmouseout = () => btn.style.transform = "scale(1)";
+        btn.onclick = () => {
+            toggleReaction(msgId, emoji);
+            picker.remove();
+        };
+        picker.appendChild(btn);
+    });
+    
+    const rect = e.currentTarget.getBoundingClientRect();
+    document.body.appendChild(picker);
+    
+    picker.style.top = `${rect.top + window.scrollY - 45}px`;
+    picker.style.left = `${Math.max(10, rect.left + window.scrollX - 90)}px`;
+    
+    document.addEventListener('click', function closePicker(event) {
+        if (!picker.contains(event.target)) {
+            picker.remove();
+            document.removeEventListener('click', closePicker);
+        }
+    }, { capture: true });
+};
+
+window.toggleReaction = function(msgId, emoji) {
+    if (!currentProfile) return showProfileSelector();
+    const member = currentProfile.member;
+    
+    if (useFirebase) {
+        const docRef = db.collection('chat').doc(msgId);
+        docRef.get().then(doc => {
+            if (doc.exists) {
+                const data = doc.data();
+                const reactions = data.reactions || {};
+                if (reactions[member] === emoji) {
+                    delete reactions[member];
+                } else {
+                    reactions[member] = emoji;
+                }
+                docRef.update({ reactions });
+            }
+        });
+    } else {
+        const msgIdx = localMessages.findIndex(m => m.id === msgId);
+        if (msgIdx !== -1) {
+            const reactions = localMessages[msgIdx].reactions || {};
+            if (reactions[member] === emoji) {
+                delete reactions[member];
+            } else {
+                reactions[member] = emoji;
+            }
+            localMessages[msgIdx].reactions = reactions;
+            localStorage.setItem('family_sync_messages', JSON.stringify(localMessages));
+            loadMessages();
+        }
+    }
+};
